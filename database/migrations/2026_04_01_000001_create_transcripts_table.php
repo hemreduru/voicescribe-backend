@@ -14,12 +14,15 @@ return new class extends Migration
             $table->string('local_id', 36)->comment('UUID from mobile app');
             $table->string('title')->nullable();
             $table->unsignedInteger('duration_seconds')->default(0);
-            $table->enum('status', ['recording', 'processing', 'completed', 'failed'])->default('completed');
+            $table->foreignId('status_id')
+                ->constrained('transcript_statuses')
+                ->restrictOnDelete();
             $table->timestamp('recorded_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
 
             $table->unique(['user_id', 'local_id'], 'unique_local_id');
+            $table->index('status_id');
         });
     }
 

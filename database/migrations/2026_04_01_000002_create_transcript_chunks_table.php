@@ -20,6 +20,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['transcript_id', 'start_time'], 'idx_transcript_time');
+            $table->index(['transcript_id', 'chunk_index'], 'idx_transcript_chunk');
         });
     }
 

@@ -11,12 +11,16 @@ return new class extends Migration
         Schema::create('summaries', function (Blueprint $table) {
             $table->id();
             $table->foreignId('transcript_id')->constrained()->cascadeOnDelete();
-            $table->enum('provider', ['local', 'openai', 'claude', 'gemini']);
+            $table->foreignId('provider_id')
+                ->constrained('llm_providers')
+                ->restrictOnDelete();
             $table->string('model', 100);
             $table->text('summary_text');
             $table->unsignedInteger('token_count')->nullable();
             $table->unsignedInteger('processing_time_ms')->nullable();
             $table->timestamps();
+
+            $table->index('provider_id');
         });
     }
 
