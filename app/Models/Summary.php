@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Lookup\LlmProvider;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,7 @@ class Summary extends Model
 
     protected $fillable = [
         'transcript_id',
-        'provider',
+        'provider_id',
         'model',
         'summary_text',
         'token_count',
@@ -30,5 +31,10 @@ class Summary extends Model
     public function transcript(): BelongsTo
     {
         return $this->belongsTo(Transcript::class);
+    }
+
+    public function provider(): BelongsTo
+    {
+        return $this->belongsTo(LlmProvider::class, 'provider_id');
     }
 }

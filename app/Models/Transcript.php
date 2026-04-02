@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Lookup\TranscriptStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,7 +19,7 @@ class Transcript extends Model
         'local_id',
         'title',
         'duration_seconds',
-        'status',
+        'status_id',
         'recorded_at',
     ];
 
@@ -33,6 +34,11 @@ class Transcript extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function status(): BelongsTo
+    {
+        return $this->belongsTo(TranscriptStatus::class, 'status_id');
     }
 
     public function chunks(): HasMany

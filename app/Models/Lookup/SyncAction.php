@@ -9,8 +9,11 @@ class SyncAction extends BaseLookup
 {
     protected $table = 'sync_actions';
 
-    public const KEY_PUSH = 'push';
-    public const KEY_PULL = 'pull';
+    public const KEY_CREATE = 'create';
+
+    public const KEY_UPDATE = 'update';
+
+    public const KEY_DELETE = 'delete';
 
     public function syncLogs(): HasMany
     {

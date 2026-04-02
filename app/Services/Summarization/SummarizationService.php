@@ -3,7 +3,6 @@
 namespace App\Services\Summarization;
 
 use App\Services\Summarization\Contracts\LlmProviderInterface;
-use InvalidArgumentException;
 
 class SummarizationService
 {

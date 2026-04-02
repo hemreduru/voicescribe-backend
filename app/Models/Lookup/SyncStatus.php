@@ -10,8 +10,12 @@ class SyncStatus extends BaseLookup
     protected $table = 'sync_statuses';
 
     public const KEY_PENDING = 'pending';
+
     public const KEY_COMPLETED = 'completed';
+
     public const KEY_FAILED = 'failed';
+
+    public const KEY_CONFLICT = 'conflict';
 
     public function syncLogs(): HasMany
     {

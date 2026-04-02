@@ -2,6 +2,8 @@
 
 namespace App\Services\Sync;
 
+use App\Models\Lookup\SyncAction;
+use App\Models\Lookup\SyncStatus;
 use App\Models\SyncLog;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -12,8 +14,10 @@ class SyncService
      */
     public function getPendingForUser(int $userId): Collection
     {
+        $pendingStatusId = SyncStatus::getIdByKey(SyncStatus::KEY_PENDING);
+
         return SyncLog::where('user_id', $userId)
-            ->where('status', 'pending')
+            ->where('status_id', $pendingStatusId)
             ->orderBy('created_at')
             ->get();
     }
@@ -23,18 +27,22 @@ class SyncService
      */
     public function logAction(
         int $userId,
-        string $action,
+        string $actionKey,
         string $entityType,
         int $entityId,
-        string $status = 'pending',
+        string $statusKey = SyncStatus::KEY_PENDING,
     ): SyncLog {
+        $actionId = SyncAction::getIdByKey($actionKey);
+        $statusId = SyncStatus::getIdByKey($statusKey);
+        $isCompleted = $statusKey === SyncStatus::KEY_COMPLETED;
+
         return SyncLog::create([
             'user_id' => $userId,
-            'action' => $action,
+            'action_id' => $actionId,
             'entity_type' => $entityType,
             'entity_id' => $entityId,
-            'status' => $status,
-            'synced_at' => $status === 'completed' ? now() : null,
+            'status_id' => $statusId,
+            'synced_at' => $isCompleted ? now() : null,
         ]);
     }
 
@@ -43,8 +51,10 @@ class SyncService
      */
     public function markCompleted(SyncLog $syncLog): SyncLog
     {
+        $completedStatusId = SyncStatus::getIdByKey(SyncStatus::KEY_COMPLETED);
+
         $syncLog->update([
-            'status' => 'completed',
+            'status_id' => $completedStatusId,
             'synced_at' => now(),
         ]);
 
@@ -56,8 +66,10 @@ class SyncService
      */
     public function markFailed(SyncLog $syncLog, string $errorMessage): SyncLog
     {
+        $failedStatusId = SyncStatus::getIdByKey(SyncStatus::KEY_FAILED);
+
         $syncLog->update([
-            'status' => 'failed',
+            'status_id' => $failedStatusId,
             'error_message' => $errorMessage,
         ]);
 
