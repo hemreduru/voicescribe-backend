@@ -2,26 +2,26 @@
 
 namespace App\Models;
 
-use App\Models\Lookup\LlmProvider;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Summary extends Model
+class Speaker extends Model
 {
     use HasFactory;
     use SoftDeletes;
 
     protected $fillable = [
-        'transcript_id',
+        'user_id',
         'client_local_id',
         'remote_id',
-        'provider_id',
-        'model',
-        'summary_text',
-        'token_count',
-        'processing_time_ms',
+        'name',
+        'embedding',
+        'recordings',
+        'has_voice_sample',
+        'is_user_named',
         'sync_status',
         'last_synced_at',
         'sync_error',
@@ -30,19 +30,21 @@ class Summary extends Model
     protected function casts(): array
     {
         return [
-            'token_count' => 'integer',
-            'processing_time_ms' => 'integer',
+            'recordings' => 'integer',
+            'has_voice_sample' => 'boolean',
+            'is_user_named' => 'boolean',
             'last_synced_at' => 'datetime',
         ];
     }
 
-    public function transcript(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Transcript::class);
+        return $this->belongsTo(User::class);
     }
 
-    public function provider(): BelongsTo
+    public function chunks(): HasMany
     {
-        return $this->belongsTo(LlmProvider::class, 'provider_id');
+        return $this->hasMany(TranscriptChunk::class);
     }
 }
+

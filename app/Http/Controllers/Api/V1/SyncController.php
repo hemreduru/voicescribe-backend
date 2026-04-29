@@ -1,0 +1,1030 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Sync\SyncPullRequest;
+use App\Http\Requests\Api\V1\Sync\SyncPushRequest;
+use App\Models\Lookup\LlmProvider;
+use App\Models\Lookup\TranscriptStatus;
+use App\Models\ProcessingJob;
+use App\Models\Speaker;
+use App\Models\Summary;
+use App\Models\SyncLog;
+use App\Models\Transcript;
+use App\Models\TranscriptChunk;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+
+class SyncController extends Controller
+{
+    /**
+     * @OA\Post(
+     *     path="/api/v1/sync/push",
+     *     tags={"Sync"},
+     *     summary="Push local changes to server",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             type="object",
+     *             @OA\Property(
+     *                 property="transcripts",
+     *                 type="array",
+     *                 @OA\Items(type="object")
+     *             ),
+     *             @OA\Property(
+     *                 property="transcript_chunks",
+     *                 type="array",
+     *                 @OA\Items(type="object")
+     *             ),
+     *             @OA\Property(
+     *                 property="speakers",
+     *                 type="array",
+     *                 @OA\Items(type="object")
+     *             ),
+     *             @OA\Property(
+     *                 property="summaries",
+     *                 type="array",
+     *                 @OA\Items(type="object")
+     *             ),
+     *             @OA\Property(
+     *                 property="processing_jobs",
+     *                 type="array",
+     *                 @OA\Items(type="object")
+     *             ),
+     *             example={
+     *                 "transcripts": {
+     *                     {
+     *                         "id": "local-1714400400000",
+     *                         "local_id": "local-1714400400000",
+     *                         "client_local_id": "local-1714400400000",
+     *                         "title": "Sprint Planning",
+     *                         "duration_seconds": 1320,
+     *                         "status_key": "speaker_analysis_completed",
+     *                         "recorded_at": "2026-04-29T10:00:00Z",
+     *                         "updated_at": "2026-04-29T10:25:00Z"
+     *                     }
+     *                 },
+     *                 "transcript_chunks": {
+     *                     {
+     *                         "id": "local-1714400400000-chunk-1",
+     *                         "client_local_id": "local-1714400400000-chunk-1",
+     *                         "transcript_client_local_id": "local-1714400400000",
+     *                         "speaker_client_local_id": "speaker-1001",
+     *                         "chunk_index": 1,
+     *                         "text": "Sprint goals and blockers",
+     *                         "speaker_label": "Ahmet",
+     *                         "speaker_analysis_status": "completed",
+     *                         "start_time": 0.0,
+     *                         "end_time": 4.2,
+     *                         "updated_at": "2026-04-29T10:00:05Z"
+     *                     }
+     *                 },
+     *                 "speakers": {
+     *                     {
+     *                         "id": "speaker-1001",
+     *                         "client_local_id": "speaker-1001",
+     *                         "name": "Ahmet",
+     *                         "embedding": {0.11, 0.20, 0.51},
+     *                         "recordings": 3,
+     *                         "has_voice_sample": true,
+     *                         "is_user_named": true,
+     *                         "updated_at": "2026-04-29T10:10:00Z"
+     *                     }
+     *                 },
+     *                 "summaries": {},
+     *                 "processing_jobs": {
+     *                     {
+     *                         "id": "job-9001",
+     *                         "client_local_id": "job-9001",
+     *                         "transcript_client_local_id": "local-1714400400000",
+     *                         "type": "speakerAnalysis",
+     *                         "status": "completed",
+     *                         "last_processed_chunk_index": 12,
+     *                         "retry_count": 0,
+     *                         "updated_at": "2026-04-29T10:25:00Z"
+     *                     }
+     *                 }
+     *             }
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Push result",
+     *         @OA\JsonContent(
+     *             type="object",
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Sync push processed successfully"),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 @OA\Property(property="serverTime", type="string", format="date-time"),
+     *                 @OA\Property(property="applied", type="object"),
+     *                 @OA\Property(property="conflicts", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="errors", type="array", @OA\Items(type="object"))
+     *             )
+     *         )
+     *     )
+     * )
+     */
+    public function push(SyncPushRequest $request): JsonResponse
+    {
+        /** @var User|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return $this->unauthorizedResponse();
+        }
+
+        $payload = $request->validated();
+
+        $result = DB::transaction(function () use ($payload, $user): array {
+            $report = [
+                'applied' => [],
+                'conflicts' => [],
+                'errors' => [],
+            ];
+
+            $report['applied']['transcripts'] = $this->syncTranscripts($user, (array) ($payload['transcripts'] ?? []), $report['conflicts']);
+            $report['applied']['speakers'] = $this->syncSpeakers($user, (array) ($payload['speakers'] ?? []), $report['conflicts']);
+            $report['applied']['transcript_chunks'] = $this->syncTranscriptChunks($user, (array) ($payload['transcript_chunks'] ?? []), $report['conflicts'], $report['errors']);
+            $report['applied']['summaries'] = $this->syncSummaries($user, (array) ($payload['summaries'] ?? []), $report['conflicts'], $report['errors']);
+            $report['applied']['processing_jobs'] = $this->syncProcessingJobs($user, (array) ($payload['processing_jobs'] ?? []), $report['conflicts'], $report['errors']);
+            $report['applied']['sync_logs'] = $this->syncSyncLogs($user, (array) ($payload['sync_logs'] ?? []));
+            $report['serverTime'] = now()->toIso8601String();
+
+            return $report;
+        });
+
+        return $this->successResponse(
+            data: $result,
+            message: 'Sync push processed successfully',
+        );
+    }
+
+    /**
+     * @OA\Post(
+     *     path="/api/v1/sync/pull",
+     *     tags={"Sync"},
+     *     summary="Pull changed data from server",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\RequestBody(
+     *         required=false,
+     *         @OA\JsonContent(
+     *             type="object",
+     *             @OA\Property(property="since", type="string", format="date-time"),
+     *             @OA\Property(
+     *                 property="tables",
+     *                 type="array",
+     *                 @OA\Items(type="string", enum={"transcripts","transcript_chunks","speakers","summaries","processing_jobs","sync_logs"})
+     *             ),
+     *             @OA\Property(property="limit", type="integer", example=200),
+     *             example={
+     *                 "since": "2026-04-29T10:00:00Z",
+     *                 "tables": {"transcripts", "transcript_chunks", "speakers", "summaries", "processing_jobs"},
+     *                 "limit": 200
+     *             }
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Pull result",
+     *         @OA\JsonContent(
+     *             type="object",
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Sync pull completed successfully"),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 @OA\Property(property="since", type="string", format="date-time"),
+     *                 @OA\Property(property="serverTime", type="string", format="date-time"),
+     *                 @OA\Property(property="conflicts", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="errors", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="transcripts", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="transcript_chunks", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="speakers", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="summaries", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="processing_jobs", type="array", @OA\Items(type="object")),
+     *                 @OA\Property(property="sync_logs", type="array", @OA\Items(type="object"))
+     *             )
+     *         )
+     *     )
+     * )
+     */
+    public function pull(SyncPullRequest $request): JsonResponse
+    {
+        /** @var User|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return $this->unauthorizedResponse();
+        }
+
+        $since = $request->validated('since');
+        $sinceTs = is_string($since) ? Carbon::parse($since) : Carbon::createFromTimestamp(0);
+        $tables = collect((array) ($request->validated('tables') ?? []));
+        $limit = (int) ($request->validated('limit') ?? 200);
+
+        $shouldPull = static fn (string $table) => $tables->isEmpty() || $tables->contains($table);
+
+        $data = [
+            'transcripts' => $shouldPull('transcripts')
+                ? $this->changedRows(
+                    Transcript::query()->where('user_id', $user->id)->withTrashed(),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+            'transcript_chunks' => $shouldPull('transcript_chunks')
+                ? $this->changedRows(
+                    TranscriptChunk::query()
+                        ->withTrashed()
+                        ->whereIn(
+                            'transcript_id',
+                            Transcript::query()->where('user_id', $user->id)->select('id'),
+                        ),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+            'speakers' => $shouldPull('speakers')
+                ? $this->changedRows(
+                    Speaker::query()->where('user_id', $user->id)->withTrashed(),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+            'summaries' => $shouldPull('summaries')
+                ? $this->changedRows(
+                    Summary::query()
+                        ->withTrashed()
+                        ->whereIn(
+                            'transcript_id',
+                            Transcript::query()->where('user_id', $user->id)->select('id'),
+                        ),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+            'processing_jobs' => $shouldPull('processing_jobs')
+                ? $this->changedRows(
+                    ProcessingJob::query()->where('user_id', $user->id)->withTrashed(),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+            'sync_logs' => $shouldPull('sync_logs')
+                ? $this->changedRows(
+                    SyncLog::query()->where('user_id', $user->id)->withTrashed(),
+                    $sinceTs,
+                    $limit,
+                )
+                : [],
+        ];
+
+        return $this->successResponse(
+            data: [
+                'since' => $sinceTs->toIso8601String(),
+                'serverTime' => now()->toIso8601String(),
+                'conflicts' => [],
+                'errors' => [],
+                ...$data,
+            ],
+            message: 'Sync pull completed successfully',
+        );
+    }
+
+    /**
+     * @OA\Get(
+     *     path="/api/v1/sync/status",
+     *     tags={"Sync"},
+     *     summary="Get sync status counts",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Response(
+     *         response=200,
+     *         description="Status result",
+     *         @OA\JsonContent(
+     *             type="object",
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(
+     *                 property="data",
+     *                 type="object",
+     *                 example={
+     *                     "transcripts": {"pending": 2, "synced": 12},
+     *                     "transcript_chunks": {"pending": 8, "synced": 170},
+     *                     "speakers": {"pending": 1, "synced": 9},
+     *                     "summaries": {"pending": 0, "synced": 7},
+     *                     "processing_jobs": {"pending": 0, "synced": 4},
+     *                     "sync_logs": {"pending": 0, "synced": 26}
+     *                 }
+     *             )
+     *         )
+     *     )
+     * )
+     */
+    public function status(SyncPullRequest $request): JsonResponse
+    {
+        /** @var User|null $user */
+        $user = $request->user();
+        if ($user === null) {
+            return $this->unauthorizedResponse();
+        }
+
+        $countByStatus = static fn (string $modelClass) => $modelClass::query()
+            ->where('user_id', $user->id)
+            ->selectRaw('sync_status, COUNT(*) as total')
+            ->groupBy('sync_status')
+            ->pluck('total', 'sync_status');
+
+        return $this->successResponse(
+            data: [
+                'transcripts' => $countByStatus(Transcript::class),
+                'speakers' => $countByStatus(Speaker::class),
+                'processing_jobs' => $countByStatus(ProcessingJob::class),
+                'sync_logs' => $countByStatus(SyncLog::class),
+                'transcript_chunks' => TranscriptChunk::query()
+                    ->whereIn(
+                        'transcript_id',
+                        Transcript::query()->where('user_id', $user->id)->select('id'),
+                    )
+                    ->selectRaw('sync_status, COUNT(*) as total')
+                    ->groupBy('sync_status')
+                    ->pluck('total', 'sync_status'),
+                'summaries' => Summary::query()
+                    ->whereIn(
+                        'transcript_id',
+                        Transcript::query()->where('user_id', $user->id)->select('id'),
+                    )
+                    ->selectRaw('sync_status, COUNT(*) as total')
+                    ->groupBy('sync_status')
+                    ->pluck('total', 'sync_status'),
+            ],
+            message: 'Sync status fetched successfully',
+        );
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $conflicts
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncTranscripts(User $user, array $rows, array &$conflicts): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'local_id', 'localId']);
+            $existing = Transcript::query()->withTrashed()
+                ->where('user_id', $user->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId)->orWhere('local_id', $clientLocalId),
+                    fn ($query) => $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            if ($this->isServerNewer($existing?->updated_at, $this->dateValue($row, ['updated_at', 'updatedAt']))) {
+                $conflicts[] = [
+                    'table' => 'transcripts',
+                    'client_local_id' => $clientLocalId,
+                    'reason' => 'server_newer',
+                    'server' => $existing?->toArray(),
+                ];
+                continue;
+            }
+
+            $incomingStatusKey = $this->stringValue($row, ['status_key', 'statusKey']);
+            $statusKey = $this->normalizeIncomingTranscriptStatusKey($incomingStatusKey);
+            $statusId = TranscriptStatus::getIdByKey($statusKey) ?? TranscriptStatus::getIdByKey(TranscriptStatus::KEY_COMPLETED);
+
+            $attributes = array_filter([
+                'user_id' => $user->id,
+                'local_id' => $this->stringValue($row, ['local_id', 'localId']) ?? $clientLocalId,
+                'client_local_id' => $clientLocalId,
+                'title' => $this->stringValue($row, ['title']),
+                'duration_seconds' => $this->intValue($row, ['duration_seconds', 'durationSeconds']) ?? 0,
+                'status_id' => $statusId,
+                'recorded_at' => $this->dateValue($row, ['recorded_at', 'recordedAt']),
+                'sync_status' => 'synced',
+                'last_synced_at' => now(),
+                'sync_error' => null,
+            ], static fn ($value) => $value !== null);
+
+            if ($existing === null) {
+                $existing = Transcript::create($attributes);
+            } else {
+                $existing->fill($attributes);
+                $existing->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $existing->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $existing->id,
+                'updated_at' => $existing->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $conflicts
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncSpeakers(User $user, array $rows, array &$conflicts): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'id']);
+            $existing = Speaker::query()->withTrashed()
+                ->where('user_id', $user->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId),
+                    fn ($query) => $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            if ($this->isServerNewer($existing?->updated_at, $this->dateValue($row, ['updated_at', 'updatedAt']))) {
+                $conflicts[] = [
+                    'table' => 'speakers',
+                    'client_local_id' => $clientLocalId,
+                    'reason' => 'server_newer',
+                    'server' => $existing?->toArray(),
+                ];
+                continue;
+            }
+
+            $attributes = array_filter([
+                'user_id' => $user->id,
+                'client_local_id' => $clientLocalId,
+                'name' => $this->stringValue($row, ['name']) ?? 'Konuşmacı',
+                'embedding' => $this->jsonTextValue($row, ['embedding']),
+                'recordings' => $this->intValue($row, ['recordings']) ?? 0,
+                'has_voice_sample' => $this->boolValue($row, ['has_voice_sample', 'hasVoiceSample']) ?? false,
+                'is_user_named' => $this->boolValue($row, ['is_user_named', 'isUserNamed']) ?? false,
+                'sync_status' => 'synced',
+                'last_synced_at' => now(),
+                'sync_error' => null,
+            ], static fn ($value) => $value !== null);
+
+            if ($existing === null) {
+                $existing = Speaker::create($attributes);
+            } else {
+                $existing->fill($attributes);
+                $existing->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $existing->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $existing->id,
+                'updated_at' => $existing->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $conflicts
+     * @param  array<int, array<string, mixed>>  $errors
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncTranscriptChunks(User $user, array $rows, array &$conflicts, array &$errors): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $transcript = $this->resolveTranscriptForRow($user, $row);
+            if ($transcript === null) {
+                $errors[] = [
+                    'table' => 'transcript_chunks',
+                    'reason' => 'transcript_not_found',
+                    'row' => $row,
+                ];
+                continue;
+            }
+
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'id']);
+            $chunkIndex = $this->intValue($row, ['chunk_index', 'chunkIndex']);
+
+            $existing = TranscriptChunk::query()->withTrashed()
+                ->where('transcript_id', $transcript->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId),
+                    fn ($query) => $chunkIndex !== null
+                        ? $query->where('chunk_index', $chunkIndex)
+                        : $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            if ($this->isServerNewer($existing?->updated_at, $this->dateValue($row, ['updated_at', 'updatedAt']))) {
+                $conflicts[] = [
+                    'table' => 'transcript_chunks',
+                    'client_local_id' => $clientLocalId,
+                    'reason' => 'server_newer',
+                    'server' => $existing?->toArray(),
+                ];
+                continue;
+            }
+
+            $attributes = array_filter([
+                'transcript_id' => $transcript->id,
+                'client_local_id' => $clientLocalId,
+                'chunk_index' => $chunkIndex ?? 0,
+                'text' => $this->stringValue($row, ['text']) ?? '',
+                'speaker_label' => $this->stringValue($row, ['speaker_label', 'speakerLabel']),
+                'speaker_id' => $this->resolveSpeakerIdForRow($user, $row),
+                'speaker_confidence' => $this->floatValue($row, ['speaker_confidence', 'speakerConfidence']),
+                'speaker_analysis_status' => $this->stringValue($row, ['speaker_analysis_status', 'speakerAnalysisStatus']) ?? 'pending',
+                'start_time' => $this->floatValue($row, ['start_time', 'startTime']) ?? 0,
+                'end_time' => $this->floatValue($row, ['end_time', 'endTime']) ?? 0,
+                'confidence' => $this->floatValue($row, ['confidence']),
+                'sync_status' => 'synced',
+                'last_synced_at' => now(),
+                'sync_error' => null,
+            ], static fn ($value) => $value !== null);
+
+            if ($existing === null) {
+                $existing = TranscriptChunk::create($attributes);
+            } else {
+                $existing->fill($attributes);
+                $existing->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $existing->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $existing->id,
+                'updated_at' => $existing->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $conflicts
+     * @param  array<int, array<string, mixed>>  $errors
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncSummaries(User $user, array $rows, array &$conflicts, array &$errors): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $transcript = $this->resolveTranscriptForRow($user, $row);
+            if ($transcript === null) {
+                $errors[] = [
+                    'table' => 'summaries',
+                    'reason' => 'transcript_not_found',
+                    'row' => $row,
+                ];
+                continue;
+            }
+
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'id']);
+            $existing = Summary::query()->withTrashed()
+                ->where('transcript_id', $transcript->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId),
+                    fn ($query) => $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            if ($this->isServerNewer($existing?->updated_at, $this->dateValue($row, ['updated_at', 'updatedAt']))) {
+                $conflicts[] = [
+                    'table' => 'summaries',
+                    'client_local_id' => $clientLocalId,
+                    'reason' => 'server_newer',
+                    'server' => $existing?->toArray(),
+                ];
+                continue;
+            }
+
+            $providerKey = $this->stringValue($row, ['provider_key', 'providerKey']) ?? 'openai';
+            $providerId = LlmProvider::getIdByKey($providerKey) ?? LlmProvider::getIdByKey('openai') ?? 1;
+
+            $attributes = array_filter([
+                'transcript_id' => $transcript->id,
+                'client_local_id' => $clientLocalId,
+                'provider_id' => $providerId,
+                'model' => $this->stringValue($row, ['model']) ?? 'local-default',
+                'summary_text' => $this->stringValue($row, ['summary_text', 'summaryText']) ?? '',
+                'token_count' => $this->intValue($row, ['token_count', 'tokenCount']),
+                'processing_time_ms' => $this->intValue($row, ['processing_time_ms', 'processingTimeMs']),
+                'sync_status' => 'synced',
+                'last_synced_at' => now(),
+                'sync_error' => null,
+            ], static fn ($value) => $value !== null);
+
+            if ($existing === null) {
+                $existing = Summary::create($attributes);
+            } else {
+                $existing->fill($attributes);
+                $existing->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $existing->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $existing->id,
+                'updated_at' => $existing->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $conflicts
+     * @param  array<int, array<string, mixed>>  $errors
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncProcessingJobs(User $user, array $rows, array &$conflicts, array &$errors): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'id']);
+            $existing = ProcessingJob::query()->withTrashed()
+                ->where('user_id', $user->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId),
+                    fn ($query) => $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            if ($this->isServerNewer($existing?->updated_at, $this->dateValue($row, ['updated_at', 'updatedAt']))) {
+                $conflicts[] = [
+                    'table' => 'processing_jobs',
+                    'client_local_id' => $clientLocalId,
+                    'reason' => 'server_newer',
+                    'server' => $existing?->toArray(),
+                ];
+                continue;
+            }
+
+            $transcript = $this->resolveTranscriptForRow($user, $row);
+            if ($transcript === null && $this->stringValue($row, ['transcript_client_local_id', 'transcriptClientLocalId', 'transcript_local_id', 'transcriptLocalId', 'transcript_id', 'transcriptId']) !== null) {
+                $errors[] = [
+                    'table' => 'processing_jobs',
+                    'reason' => 'transcript_not_found',
+                    'row' => $row,
+                ];
+                continue;
+            }
+
+            $attributes = array_filter([
+                'user_id' => $user->id,
+                'transcript_id' => $transcript?->id,
+                'client_local_id' => $clientLocalId,
+                'type' => $this->stringValue($row, ['type']) ?? 'sync',
+                'status' => $this->stringValue($row, ['status']) ?? 'pending',
+                'last_processed_chunk_index' => $this->intValue($row, ['last_processed_chunk_index', 'lastProcessedChunkIndex']) ?? 0,
+                'retry_count' => $this->intValue($row, ['retry_count', 'retryCount']) ?? 0,
+                'error' => $this->stringValue($row, ['error']),
+                'meta' => $this->arrayValue($row, ['meta']),
+                'sync_status' => 'synced',
+                'last_synced_at' => now(),
+                'sync_error' => null,
+            ], static fn ($value) => $value !== null);
+
+            if ($existing === null) {
+                $existing = ProcessingJob::create($attributes);
+            } else {
+                $existing->fill($attributes);
+                $existing->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $existing->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $existing->id,
+                'updated_at' => $existing->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function syncSyncLogs(User $user, array $rows): array
+    {
+        $applied = [];
+
+        foreach ($rows as $row) {
+            $clientLocalId = $this->stringValue($row, ['client_local_id', 'clientLocalId', 'id']);
+
+            $syncLog = SyncLog::query()
+                ->where('user_id', $user->id)
+                ->when(
+                    $clientLocalId !== null,
+                    fn ($query) => $query->where('client_local_id', $clientLocalId),
+                    fn ($query) => $query->whereRaw('1 = 0'),
+                )
+                ->first();
+
+            $attributes = array_filter([
+                'user_id' => $user->id,
+                'client_local_id' => $clientLocalId,
+                'entity_type' => $this->stringValue($row, ['entity_type', 'entityType']) ?? 'unknown',
+                'entity_id' => $this->intValue($row, ['entity_id', 'entityId']) ?? 0,
+                'action_id' => $this->intValue($row, ['action_id', 'actionId']) ?? 1,
+                'status_id' => $this->intValue($row, ['status_id', 'statusId']) ?? 1,
+                'retry_count' => $this->intValue($row, ['retry_count', 'retryCount']) ?? 0,
+                'error_message' => $this->stringValue($row, ['error_message', 'errorMessage']),
+                'meta' => $this->arrayValue($row, ['meta']),
+                'synced_at' => $this->dateValue($row, ['synced_at', 'syncedAt']) ?? now(),
+                'last_synced_at' => now(),
+            ], static fn ($value) => $value !== null);
+
+            if ($syncLog === null) {
+                $syncLog = SyncLog::create($attributes);
+            } else {
+                $syncLog->fill($attributes);
+                $syncLog->save();
+            }
+
+            if ($this->dateValue($row, ['deleted_at', 'deletedAt']) !== null) {
+                $syncLog->delete();
+            }
+
+            $applied[] = [
+                'client_local_id' => $clientLocalId,
+                'remote_id' => (string) $syncLog->id,
+                'updated_at' => $syncLog->updated_at?->toIso8601String(),
+            ];
+        }
+
+        return $applied;
+    }
+
+    private function resolveTranscriptForRow(User $user, array $row): ?Transcript
+    {
+        $transcriptId = $this->intValue($row, ['transcript_id', 'transcriptId']);
+        if ($transcriptId !== null) {
+            return Transcript::query()->where('user_id', $user->id)->find($transcriptId);
+        }
+
+        $transcriptTextId = $this->stringValue($row, ['transcript_id', 'transcriptId']);
+        if ($transcriptTextId !== null) {
+            $byRemoteId = Transcript::query()
+                ->where('user_id', $user->id)
+                ->where('remote_id', $transcriptTextId)
+                ->first();
+            if ($byRemoteId !== null) {
+                return $byRemoteId;
+            }
+        }
+
+        $localId = $this->stringValue($row, ['transcript_client_local_id', 'transcriptClientLocalId', 'transcript_local_id', 'transcriptLocalId']);
+        if ($localId === null) {
+            return null;
+        }
+
+        return Transcript::query()
+            ->where('user_id', $user->id)
+            ->where(function ($query) use ($localId): void {
+                $query->where('client_local_id', $localId)
+                    ->orWhere('local_id', $localId);
+            })
+            ->first();
+    }
+
+    private function resolveSpeakerIdForRow(User $user, array $row): ?int
+    {
+        $speakerId = $this->intValue($row, ['speaker_id', 'speakerId']);
+        if ($speakerId !== null) {
+            return Speaker::query()->where('user_id', $user->id)->whereKey($speakerId)->exists()
+                ? $speakerId
+                : null;
+        }
+
+        $speakerTextId = $this->stringValue($row, ['speaker_id', 'speakerId']);
+        if ($speakerTextId !== null) {
+            $remoteMatch = Speaker::query()
+                ->where('user_id', $user->id)
+                ->where('remote_id', $speakerTextId)
+                ->value('id');
+            if ($remoteMatch !== null) {
+                return (int) $remoteMatch;
+            }
+        }
+
+        $speakerLocalId = $this->stringValue($row, ['speaker_client_local_id', 'speakerClientLocalId']);
+        if ($speakerLocalId === null) {
+            return null;
+        }
+
+        return Speaker::query()
+            ->where('user_id', $user->id)
+            ->where('client_local_id', $speakerLocalId)
+            ->value('id');
+    }
+
+    private function isServerNewer(?Carbon $serverUpdatedAt, ?Carbon $incomingUpdatedAt): bool
+    {
+        if ($serverUpdatedAt === null || $incomingUpdatedAt === null) {
+            return false;
+        }
+
+        return $serverUpdatedAt->gt($incomingUpdatedAt);
+    }
+
+    private function changedRows($query, Carbon $sinceTs, int $limit): array
+    {
+        return $query
+            ->where(function ($builder) use ($sinceTs): void {
+                $builder->where('updated_at', '>=', $sinceTs)
+                    ->orWhere('deleted_at', '>=', $sinceTs);
+            })
+            ->orderBy('updated_at')
+            ->limit($limit)
+            ->get()
+            ->map(function ($model): array {
+                $row = $model->toArray();
+                $row['remote_id'] = (string) $model->id;
+                $row['updated_at'] = $model->updated_at?->toIso8601String();
+                $row['deleted_at'] = $model->deleted_at?->toIso8601String();
+                if ($model instanceof Transcript) {
+                    $row['status_key'] = TranscriptStatus::query()
+                        ->whereKey($model->status_id)
+                        ->value('key');
+                }
+
+                return $row;
+            })
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function stringValue(array $payload, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function intValue(array $payload, array $keys): ?int
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_numeric($value)) {
+                return (int) $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function floatValue(array $payload, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_numeric($value)) {
+                return (float) $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function boolValue(array $payload, array $keys): ?bool
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_bool($value)) {
+                return $value;
+            }
+            if (is_numeric($value)) {
+                return ((int) $value) === 1;
+            }
+            if (is_string($value)) {
+                return in_array(strtolower($value), ['1', 'true', 'yes'], true);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function dateValue(array $payload, array $keys): ?Carbon
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return Carbon::parse($value);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function arrayValue(array $payload, array $keys): ?array
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_array($value)) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<string>  $keys
+     */
+    private function jsonTextValue(array $payload, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_array($value)) {
+                return json_encode($value, JSON_UNESCAPED_UNICODE);
+            }
+            if (is_string($value) && trim($value) !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeIncomingTranscriptStatusKey(?string $key): string
+    {
+        $normalized = strtolower((string) $key);
+
+        return match ($normalized) {
+            'recording' => TranscriptStatus::KEY_RECORDING,
+            'processing',
+            'transcribing',
+            'transcription_completed',
+            'speaker_analysis_pending',
+            'speaker_analysis_running',
+            'empty' => TranscriptStatus::KEY_PROCESSING,
+            'failed',
+            'transcription_error' => TranscriptStatus::KEY_FAILED,
+            'completed',
+            'speaker_analysis_completed' => TranscriptStatus::KEY_COMPLETED,
+            default => TranscriptStatus::KEY_COMPLETED,
+        };
+    }
+}

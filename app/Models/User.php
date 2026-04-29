@@ -18,6 +18,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'supabase_user_id',
     ];
 
     protected $hidden = [
@@ -41,5 +42,15 @@ class User extends Authenticatable
     public function syncLogs(): HasMany
     {
         return $this->hasMany(SyncLog::class);
+    }
+
+    public function speakers(): HasMany
+    {
+        return $this->hasMany(Speaker::class);
+    }
+
+    public function processingJobs(): HasMany
+    {
+        return $this->hasMany(ProcessingJob::class);
     }
 }

@@ -14,12 +14,22 @@ class TranscriptChunkResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'client_local_id' => $this->client_local_id,
+            'remote_id' => (string) $this->id,
+            'transcript_id' => $this->transcript_id,
             'chunk_index' => $this->chunk_index,
             'text' => $this->text,
+            'speaker_id' => $this->speaker_id,
             'speaker_label' => $this->speaker_label,
+            'speaker_confidence' => $this->speaker_confidence,
+            'speaker_analysis_status' => $this->speaker_analysis_status,
             'start_time' => $this->start_time,
             'end_time' => $this->end_time,
             'confidence' => $this->confidence,
+            'sync_status' => $this->sync_status,
+            'last_synced_at' => $this->last_synced_at?->toIso8601String(),
+            'deleted_at' => $this->deleted_at?->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
         ];
     }
 }

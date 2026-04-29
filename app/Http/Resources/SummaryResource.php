@@ -14,12 +14,19 @@ class SummaryResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'client_local_id' => $this->client_local_id,
+            'remote_id' => (string) $this->id,
+            'transcript_id' => $this->transcript_id,
             'provider' => $this->provider,
             'model' => $this->model,
             'summary_text' => $this->summary_text,
             'token_count' => $this->token_count,
             'processing_time_ms' => $this->processing_time_ms,
+            'sync_status' => $this->sync_status,
+            'last_synced_at' => $this->last_synced_at?->toIso8601String(),
             'created_at' => $this->created_at->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
+            'deleted_at' => $this->deleted_at?->toIso8601String(),
         ];
     }
 }

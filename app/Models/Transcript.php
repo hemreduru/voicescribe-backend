@@ -17,10 +17,15 @@ class Transcript extends Model
     protected $fillable = [
         'user_id',
         'local_id',
+        'client_local_id',
+        'remote_id',
         'title',
         'duration_seconds',
         'status_id',
         'recorded_at',
+        'sync_status',
+        'last_synced_at',
+        'sync_error',
     ];
 
     protected function casts(): array
@@ -28,6 +33,7 @@ class Transcript extends Model
         return [
             'duration_seconds' => 'integer',
             'recorded_at' => 'datetime',
+            'last_synced_at' => 'datetime',
         ];
     }
 
@@ -49,5 +55,10 @@ class Transcript extends Model
     public function summaries(): HasMany
     {
         return $this->hasMany(Summary::class);
+    }
+
+    public function processingJobs(): HasMany
+    {
+        return $this->hasMany(ProcessingJob::class);
     }
 }

@@ -2,26 +2,27 @@
 
 namespace App\Models;
 
-use App\Models\Lookup\LlmProvider;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Summary extends Model
+class ProcessingJob extends Model
 {
     use HasFactory;
     use SoftDeletes;
 
     protected $fillable = [
+        'user_id',
         'transcript_id',
         'client_local_id',
         'remote_id',
-        'provider_id',
-        'model',
-        'summary_text',
-        'token_count',
-        'processing_time_ms',
+        'type',
+        'status',
+        'last_processed_chunk_index',
+        'retry_count',
+        'error',
+        'meta',
         'sync_status',
         'last_synced_at',
         'sync_error',
@@ -30,19 +31,21 @@ class Summary extends Model
     protected function casts(): array
     {
         return [
-            'token_count' => 'integer',
-            'processing_time_ms' => 'integer',
+            'last_processed_chunk_index' => 'integer',
+            'retry_count' => 'integer',
+            'meta' => 'array',
             'last_synced_at' => 'datetime',
         ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function transcript(): BelongsTo
     {
         return $this->belongsTo(Transcript::class);
     }
-
-    public function provider(): BelongsTo
-    {
-        return $this->belongsTo(LlmProvider::class, 'provider_id');
-    }
 }
+
