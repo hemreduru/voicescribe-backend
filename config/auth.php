@@ -42,8 +42,8 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
-        'supabase' => [
-            'driver' => 'supabase',
+        'sanctum' => [
+            'driver' => 'sanctum',
             'provider' => 'users',
         ],
     ],

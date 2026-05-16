@@ -22,3 +22,4 @@ yarn-error.log
 /.vscode
 /_temp_laravel
 /database/database.sqlite
+/storage

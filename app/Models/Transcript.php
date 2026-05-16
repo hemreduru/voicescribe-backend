@@ -56,9 +56,4 @@ class Transcript extends Model
     {
         return $this->hasMany(Summary::class);
     }
-
-    public function processingJobs(): HasMany
-    {
-        return $this->hasMany(ProcessingJob::class);
-    }
 }

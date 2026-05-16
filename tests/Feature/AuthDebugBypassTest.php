@@ -10,7 +10,7 @@ class AuthDebugBypassTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_register_bypasses_supabase_in_debug_mode(): void
+    public function test_register_returns_local_token_in_debug_mode(): void
     {
         config(['app.debug' => true]);
 
@@ -24,11 +24,16 @@ class AuthDebugBypassTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.email', 'debug-register@example.com');
+            ->assertJsonPath('data.user.email', 'debug-register@example.com')
+            ->assertJsonPath('data.session.expiresIn', null);
 
         $this->assertNotNull(data_get($response->json(), 'data.session.accessToken'));
         $this->assertDatabaseHas('users', [
             'email' => 'debug-register@example.com',
+        ]);
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'name' => 'voicescribe-mobile',
+            'expires_at' => null,
         ]);
     }
 
@@ -48,10 +53,17 @@ class AuthDebugBypassTest extends TestCase
         $login
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.email', $user->email);
+            ->assertJsonPath('data.user.email', $user->email)
+            ->assertJsonPath('data.session.expiresIn', null);
 
         $accessToken = (string) data_get($login->json(), 'data.session.accessToken');
         $this->assertNotSame('', $accessToken);
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'tokenable_type' => User::class,
+            'tokenable_id' => $user->id,
+            'name' => 'voicescribe-mobile',
+            'expires_at' => null,
+        ]);
 
         $me = $this->withHeaders([
             'Authorization' => 'Bearer '.$accessToken,
@@ -63,4 +75,3 @@ class AuthDebugBypassTest extends TestCase
             ->assertJsonPath('data.user.email', $user->email);
     }
 }
-

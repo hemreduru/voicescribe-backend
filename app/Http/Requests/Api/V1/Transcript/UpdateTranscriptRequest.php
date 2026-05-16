@@ -27,4 +27,3 @@ class UpdateTranscriptRequest extends FormRequest
         ];
     }
 }
-

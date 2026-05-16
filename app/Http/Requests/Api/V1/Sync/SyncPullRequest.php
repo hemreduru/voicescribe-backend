@@ -21,4 +21,3 @@ class SyncPullRequest extends FormRequest
         ];
     }
 }
-

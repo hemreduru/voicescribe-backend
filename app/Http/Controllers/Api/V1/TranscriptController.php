@@ -26,6 +26,7 @@ class TranscriptController extends Controller
      *     tags={"Transcripts"},
      *     summary="List transcripts",
      *     security={{"bearerAuth":{}}},
+     *
      *     @OA\Response(response=200, description="Transcript list")
      * )
      */
@@ -39,7 +40,7 @@ class TranscriptController extends Controller
 
         $transcripts = Transcript::query()
             ->where('user_id', $user->id)
-            ->with(['status', 'chunks.speaker', 'summaries.provider'])
+            ->with(['status', 'chunks', 'summaries.provider'])
             ->latest('updated_at')
             ->get();
 
@@ -59,7 +60,7 @@ class TranscriptController extends Controller
 
         $transcript = Transcript::query()
             ->where('user_id', $user->id)
-            ->with(['status', 'chunks.speaker', 'summaries.provider'])
+            ->with(['status', 'chunks', 'summaries.provider'])
             ->find($id);
 
         if ($transcript === null) {
@@ -78,6 +79,7 @@ class TranscriptController extends Controller
      *     tags={"Transcripts"},
      *     summary="Create or upsert transcript",
      *     security={{"bearerAuth":{}}},
+     *
      *     @OA\Response(response=201, description="Transcript stored")
      * )
      */
@@ -96,7 +98,7 @@ class TranscriptController extends Controller
             $this->upsertChunks($transcript, (array) ($payload['chunks'] ?? []));
             $this->upsertSummaries($transcript, (array) ($payload['summaries'] ?? []));
 
-            return $transcript->refresh()->load(['status', 'chunks.speaker', 'summaries.provider']);
+            return $transcript->refresh()->load(['status', 'chunks', 'summaries.provider']);
         });
 
         return $this->createdResponse(
@@ -128,7 +130,7 @@ class TranscriptController extends Controller
             $this->upsertChunks($transcript, (array) ($payload['chunks'] ?? []));
             $this->upsertSummaries($transcript, (array) ($payload['summaries'] ?? []));
 
-            return $transcript->refresh()->load(['status', 'chunks.speaker', 'summaries.provider']);
+            return $transcript->refresh()->load(['status', 'chunks', 'summaries.provider']);
         });
 
         return $this->successResponse(
@@ -244,10 +246,6 @@ class TranscriptController extends Controller
                 'transcript_id' => $transcript->id,
                 'chunk_index' => $chunkIndex,
                 'text' => $this->stringValue($item, ['text']) ?? '',
-                'speaker_label' => $this->stringValue($item, ['speaker_label', 'speakerLabel']),
-                'speaker_id' => $this->intValue($item, ['speaker_id', 'speakerId']),
-                'speaker_confidence' => $this->floatValue($item, ['speaker_confidence', 'speakerConfidence']),
-                'speaker_analysis_status' => $this->stringValue($item, ['speaker_analysis_status', 'speakerAnalysisStatus']) ?? 'pending',
                 'start_time' => $this->floatValue($item, ['start_time', 'startTime']) ?? 0,
                 'end_time' => $this->floatValue($item, ['end_time', 'endTime']) ?? 0,
                 'confidence' => $this->floatValue($item, ['confidence']),

@@ -16,10 +16,6 @@ class TranscriptChunk extends Model
         'transcript_id',
         'chunk_index',
         'text',
-        'speaker_label',
-        'speaker_id',
-        'speaker_confidence',
-        'speaker_analysis_status',
         'start_time',
         'end_time',
         'confidence',
@@ -37,7 +33,6 @@ class TranscriptChunk extends Model
             'start_time' => 'decimal:3',
             'end_time' => 'decimal:3',
             'confidence' => 'decimal:2',
-            'speaker_confidence' => 'decimal:4',
             'last_synced_at' => 'datetime',
         ];
     }
@@ -45,10 +40,5 @@ class TranscriptChunk extends Model
     public function transcript(): BelongsTo
     {
         return $this->belongsTo(Transcript::class);
-    }
-
-    public function speaker(): BelongsTo
-    {
-        return $this->belongsTo(Speaker::class);
     }
 }

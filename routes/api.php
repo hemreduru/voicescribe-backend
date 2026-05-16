@@ -27,7 +27,7 @@ Route::prefix('v1')->group(function () {
     });
 
     // Authenticated routes
-    Route::middleware('auth:supabase')->group(function () {
+    Route::middleware('auth:sanctum')->group(function () {
         // Auth
         Route::post('/auth/logout', [AuthController::class, 'logout'])->name('api.v1.auth.logout');
         Route::get('/auth/me', [AuthController::class, 'me'])->name('api.v1.auth.me');

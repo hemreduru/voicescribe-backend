@@ -6,7 +6,7 @@ namespace App;
  * @OA\Info(
  *     title="VoiceScribe Backend API",
  *     version="1.0.0",
- *     description="Supabase auth proxy + local-first sync API for VoiceScribe mobile."
+ *     description="Sanctum token auth + local-first sync API for VoiceScribe mobile."
  * )
  *
  * @OA\Server(
@@ -21,7 +21,4 @@ namespace App;
  *     bearerFormat="JWT"
  * )
  */
-final class OpenApi
-{
-}
-
+final class OpenApi {}

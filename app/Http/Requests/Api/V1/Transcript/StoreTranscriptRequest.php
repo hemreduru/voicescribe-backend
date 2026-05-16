@@ -26,10 +26,6 @@ class StoreTranscriptRequest extends FormRequest
             'chunks.*.client_local_id' => ['nullable', 'string', 'max:100'],
             'chunks.*.chunk_index' => ['nullable', 'integer', 'min:0'],
             'chunks.*.text' => ['nullable', 'string'],
-            'chunks.*.speaker_label' => ['nullable', 'string', 'max:120'],
-            'chunks.*.speaker_id' => ['nullable', 'integer'],
-            'chunks.*.speaker_confidence' => ['nullable', 'numeric'],
-            'chunks.*.speaker_analysis_status' => ['nullable', 'string', 'max:20'],
             'chunks.*.start_time' => ['nullable', 'numeric'],
             'chunks.*.end_time' => ['nullable', 'numeric'],
             'chunks.*.confidence' => ['nullable', 'numeric'],
@@ -47,4 +43,3 @@ class StoreTranscriptRequest extends FormRequest
         ];
     }
 }
-
