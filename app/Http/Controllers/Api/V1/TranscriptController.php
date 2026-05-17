@@ -249,6 +249,7 @@ class TranscriptController extends Controller
                 'start_time' => $this->floatValue($item, ['start_time', 'startTime']) ?? 0,
                 'end_time' => $this->floatValue($item, ['end_time', 'endTime']) ?? 0,
                 'confidence' => $this->floatValue($item, ['confidence']),
+                'transcription_error' => $this->stringValue($item, ['transcription_error', 'transcriptionError']),
                 'client_local_id' => $clientLocalId,
                 'sync_status' => $this->stringValue($item, ['sync_status', 'syncStatus']) ?? 'synced',
                 'last_synced_at' => now(),

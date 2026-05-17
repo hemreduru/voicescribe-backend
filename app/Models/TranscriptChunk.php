@@ -19,6 +19,7 @@ class TranscriptChunk extends Model
         'start_time',
         'end_time',
         'confidence',
+        'transcription_error',
         'client_local_id',
         'remote_id',
         'sync_status',

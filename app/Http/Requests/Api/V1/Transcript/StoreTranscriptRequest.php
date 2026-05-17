@@ -29,6 +29,7 @@ class StoreTranscriptRequest extends FormRequest
             'chunks.*.start_time' => ['nullable', 'numeric'],
             'chunks.*.end_time' => ['nullable', 'numeric'],
             'chunks.*.confidence' => ['nullable', 'numeric'],
+            'chunks.*.transcription_error' => ['nullable', 'string'],
             'chunks.*.updated_at' => ['nullable', 'date'],
             'chunks.*.deleted_at' => ['nullable', 'date'],
             'summaries' => ['sometimes', 'array'],
