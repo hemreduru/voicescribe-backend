@@ -14,6 +14,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SyncController extends Controller
 {
@@ -105,6 +106,7 @@ class SyncController extends Controller
         }
 
         $payload = $request->validated();
+        $startedAt = microtime(true);
 
         $result = DB::transaction(function () use ($payload, $user): array {
             $report = [
@@ -121,6 +123,33 @@ class SyncController extends Controller
 
             return $report;
         });
+
+        $context = [
+            'user_id' => $user->id,
+            'received' => [
+                'transcripts' => count((array) ($payload['transcripts'] ?? [])),
+                'transcript_chunks' => count((array) ($payload['transcript_chunks'] ?? [])),
+                'summaries' => count((array) ($payload['summaries'] ?? [])),
+            ],
+            'applied' => [
+                'transcripts' => count($result['applied']['transcripts'] ?? []),
+                'transcript_chunks' => count($result['applied']['transcript_chunks'] ?? []),
+                'summaries' => count($result['applied']['summaries'] ?? []),
+            ],
+            'conflicts' => count($result['conflicts'] ?? []),
+            'errors' => count($result['errors'] ?? []),
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ];
+
+        // Errors/conflicts are the actionable signal — surface their details at a
+        // higher level so they stand out; clean pushes stay at info.
+        if ($context['errors'] > 0) {
+            Log::channel('sync')->warning('sync.push completed with errors', $context + [
+                'error_details' => $result['errors'] ?? [],
+            ]);
+        } else {
+            Log::channel('sync')->info('sync.push', $context);
+        }
 
         return $this->successResponse(
             data: $result,
@@ -196,6 +225,7 @@ class SyncController extends Controller
         $limit = (int) ($request->validated('limit') ?? 200);
 
         $shouldPull = static fn (string $table) => $tables->isEmpty() || $tables->contains($table);
+        $startedAt = microtime(true);
 
         $data = array_merge([
             'transcripts' => $shouldPull('transcripts')
@@ -236,7 +266,22 @@ class SyncController extends Controller
         // the limit. Instead resume from the earliest truncated table's last
         // `updated_at`, so the next pull re-scans from there. Re-pulling the
         // boundary timestamp is safe because the client merge is idempotent.
-        $nextSince = $this->resumeCursor($data, $limit) ?? now();
+        $resumeFrom = $this->resumeCursor($data, $limit);
+        $nextSince = $resumeFrom ?? now();
+
+        Log::channel('sync')->info('sync.pull', [
+            'user_id' => $user->id,
+            'since' => $sinceTs->toIso8601String(),
+            'returned' => [
+                'transcripts' => count($data['transcripts'] ?? []),
+                'transcript_chunks' => count($data['transcript_chunks'] ?? []),
+                'summaries' => count($data['summaries'] ?? []),
+            ],
+            // True when a page was truncated at the limit, so the client must
+            // pull again from `serverTime` to drain the remainder.
+            'has_more' => $resumeFrom !== null,
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
 
         return $this->successResponse(
             data: [

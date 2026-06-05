@@ -73,6 +73,17 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Dedicated channel for offline-sync traffic (push/pull). Kept separate
+        // from the app log so a sync issue is readable at a glance in
+        // storage/logs/sync-YYYY-MM-DD.log without app noise.
+        'sync' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/sync.log'),
+            'level' => env('SYNC_LOG_LEVEL', 'info'),
+            'days' => env('SYNC_LOG_DAYS', 14),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),
