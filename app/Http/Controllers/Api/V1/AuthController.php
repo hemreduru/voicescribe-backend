@@ -193,6 +193,10 @@ class AuthController extends Controller
 
     private function isDebugAuthBypassEnabled(): bool
     {
-        return (bool) config('app.debug');
+        // Decoupled from APP_DEBUG and hard-gated against production so a
+        // misconfigured production deploy can never fall open. Only enabled
+        // when explicitly opted in via AUTH_PASSWORD_BYPASS in a non-prod env.
+        return ! app()->isProduction()
+            && (bool) config('voicescribe.auth_password_bypass', false);
     }
 }

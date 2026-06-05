@@ -12,7 +12,7 @@ class AuthDebugBypassTest extends TestCase
 
     public function test_register_returns_local_token_in_debug_mode(): void
     {
-        config(['app.debug' => true]);
+        config(['voicescribe.auth_password_bypass' => true]);
 
         $response = $this->postJson('/api/v1/auth/register', [
             'name' => 'Debug User',
@@ -39,7 +39,7 @@ class AuthDebugBypassTest extends TestCase
 
     public function test_login_accepts_any_password_in_debug_mode_and_authenticates_me(): void
     {
-        config(['app.debug' => true]);
+        config(['voicescribe.auth_password_bypass' => true]);
 
         $user = User::factory()->create([
             'email' => 'debug-login@example.com',
