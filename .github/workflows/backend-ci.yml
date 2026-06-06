@@ -38,6 +38,12 @@ jobs:
     - name: Install Dependencies
       run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
+    - name: Prepare runtime directories
+      # A fresh checkout doesn't include storage/framework/{views,cache,...}
+      # (their .gitkeep files aren't tracked), so Blade view compilation for the
+      # /up health check throws "Please provide a valid cache path." Create them.
+      run: mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/framework/testing storage/logs bootstrap/cache
+
     - name: Generate key
       run: php artisan key:generate
 

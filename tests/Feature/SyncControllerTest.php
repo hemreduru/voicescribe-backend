@@ -156,4 +156,78 @@ class SyncControllerTest extends TestCase
         $this->assertArrayNotHasKey('speaker_confidence', $chunk);
         $this->assertArrayNotHasKey('speaker_analysis_status', $chunk);
     }
+
+    public function test_push_does_not_cross_match_another_users_transcript(): void
+    {
+        // User A creates a transcript whose client_local_id (and derived
+        // local_id) is 'shared-local'.
+        $userA = User::factory()->create();
+        Sanctum::actingAs($userA);
+        $this->postJson('/api/v1/sync/push', [
+            'transcripts' => [[
+                'client_local_id' => 'shared-local',
+                'title' => 'A owned',
+                'duration_seconds' => 1,
+                'status_key' => 'completed',
+                'updated_at' => now()->subDay()->toIso8601String(),
+            ]],
+        ])->assertOk();
+
+        // User B pushes a transcript reusing the same id. It must create B's
+        // own row, never hijack A's (regression for the unscoped local_id
+        // OR-match that ignored user_id).
+        $userB = User::factory()->create();
+        Sanctum::actingAs($userB);
+        $this->postJson('/api/v1/sync/push', [
+            'transcripts' => [[
+                'client_local_id' => 'shared-local',
+                'title' => 'B owned',
+                'duration_seconds' => 2,
+                'status_key' => 'completed',
+                'updated_at' => now()->toIso8601String(),
+            ]],
+        ])->assertOk();
+
+        $this->assertDatabaseCount('transcripts', 2);
+        $this->assertDatabaseHas('transcripts', [
+            'user_id' => $userA->id,
+            'client_local_id' => 'shared-local',
+            'title' => 'A owned',
+        ]);
+        $this->assertDatabaseHas('transcripts', [
+            'user_id' => $userB->id,
+            'client_local_id' => 'shared-local',
+            'title' => 'B owned',
+        ]);
+    }
+
+    public function test_push_is_idempotent_for_same_client_local_id(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $payload = [
+            'transcripts' => [[
+                'client_local_id' => 'dup-local',
+                'title' => 'First',
+                'duration_seconds' => 1,
+                'status_key' => 'completed',
+                'updated_at' => now()->toIso8601String(),
+            ]],
+        ];
+        $this->postJson('/api/v1/sync/push', $payload)->assertOk();
+
+        // Re-push the same client_local_id with a newer timestamp → updates the
+        // same row, never a duplicate (the unique constraint backs this up).
+        $payload['transcripts'][0]['title'] = 'Updated';
+        $payload['transcripts'][0]['updated_at'] = now()->addMinute()->toIso8601String();
+        $this->postJson('/api/v1/sync/push', $payload)->assertOk();
+
+        $this->assertDatabaseCount('transcripts', 1);
+        $this->assertDatabaseHas('transcripts', [
+            'user_id' => $user->id,
+            'client_local_id' => 'dup-local',
+            'title' => 'Updated',
+        ]);
+    }
 }

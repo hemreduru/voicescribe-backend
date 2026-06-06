@@ -14,6 +14,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SyncController extends Controller
 {
@@ -105,6 +106,7 @@ class SyncController extends Controller
         }
 
         $payload = $request->validated();
+        $startedAt = microtime(true);
 
         $result = DB::transaction(function () use ($payload, $user): array {
             $report = [
@@ -121,6 +123,33 @@ class SyncController extends Controller
 
             return $report;
         });
+
+        $context = [
+            'user_id' => $user->id,
+            'received' => [
+                'transcripts' => count((array) ($payload['transcripts'] ?? [])),
+                'transcript_chunks' => count((array) ($payload['transcript_chunks'] ?? [])),
+                'summaries' => count((array) ($payload['summaries'] ?? [])),
+            ],
+            'applied' => [
+                'transcripts' => count($result['applied']['transcripts'] ?? []),
+                'transcript_chunks' => count($result['applied']['transcript_chunks'] ?? []),
+                'summaries' => count($result['applied']['summaries'] ?? []),
+            ],
+            'conflicts' => count($result['conflicts'] ?? []),
+            'errors' => count($result['errors'] ?? []),
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ];
+
+        // Errors/conflicts are the actionable signal — surface their details at a
+        // higher level so they stand out; clean pushes stay at info.
+        if ($context['errors'] > 0) {
+            Log::channel('sync')->warning('sync.push completed with errors', $context + [
+                'error_details' => $result['errors'] ?? [],
+            ]);
+        } else {
+            Log::channel('sync')->info('sync.push', $context);
+        }
 
         return $this->successResponse(
             data: $result,
@@ -196,6 +225,7 @@ class SyncController extends Controller
         $limit = (int) ($request->validated('limit') ?? 200);
 
         $shouldPull = static fn (string $table) => $tables->isEmpty() || $tables->contains($table);
+        $startedAt = microtime(true);
 
         $data = array_merge([
             'transcripts' => $shouldPull('transcripts')
@@ -231,16 +261,76 @@ class SyncController extends Controller
                 : [],
         ], $this->emptyLegacyTables());
 
+        // Resumable cursor: when any table filled its page (a truncated result),
+        // do NOT advance the cursor to "now" — that would skip the rows beyond
+        // the limit. Instead resume from the earliest truncated table's last
+        // `updated_at`, so the next pull re-scans from there. Re-pulling the
+        // boundary timestamp is safe because the client merge is idempotent.
+        $resumeFrom = $this->resumeCursor($data, $limit);
+        $nextSince = $resumeFrom ?? now();
+
+        Log::channel('sync')->info('sync.pull', [
+            'user_id' => $user->id,
+            'since' => $sinceTs->toIso8601String(),
+            'returned' => [
+                'transcripts' => count($data['transcripts'] ?? []),
+                'transcript_chunks' => count($data['transcript_chunks'] ?? []),
+                'summaries' => count($data['summaries'] ?? []),
+            ],
+            // True when a page was truncated at the limit, so the client must
+            // pull again from `serverTime` to drain the remainder.
+            'has_more' => $resumeFrom !== null,
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
         return $this->successResponse(
             data: [
                 'since' => $sinceTs->toIso8601String(),
-                'serverTime' => now()->toIso8601String(),
+                'serverTime' => $nextSince->toIso8601String(),
                 'conflicts' => [],
                 'errors' => [],
                 ...$data,
             ],
             message: 'Sync pull completed successfully',
         );
+    }
+
+    /**
+     * Returns the timestamp the next pull should resume from when at least one
+     * table was truncated at the page limit, or null when everything drained.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function resumeCursor(array $data, int $limit): ?Carbon
+    {
+        if ($limit <= 0) {
+            return null;
+        }
+
+        $resume = null;
+        foreach (['transcripts', 'transcript_chunks', 'summaries'] as $table) {
+            $rows = $data[$table] ?? [];
+            if (! is_array($rows) || count($rows) < $limit) {
+                continue;
+            }
+
+            // Rows are ordered by updated_at asc, so the last one is this
+            // table's highest processed timestamp.
+            $last = $rows[array_key_last($rows)];
+            $ts = is_array($last) ? ($last['updated_at'] ?? null) : null;
+            if (! is_string($ts) || trim($ts) === '') {
+                continue;
+            }
+
+            $candidate = Carbon::parse($ts);
+            // Use the earliest truncated boundary so no table's overflow rows
+            // are skipped by a single shared cursor.
+            if ($resume === null || $candidate->lt($resume)) {
+                $resume = $candidate;
+            }
+        }
+
+        return $resume;
     }
 
     /**
@@ -324,7 +414,14 @@ class SyncController extends Controller
                 ->where('user_id', $user->id)
                 ->when(
                     $clientLocalId !== null,
-                    fn ($query) => $query->where('client_local_id', $clientLocalId)->orWhere('local_id', $clientLocalId),
+                    // Wrap the OR in a closure so it stays scoped to user_id.
+                    // Without the closure, operator precedence yields
+                    // `(user_id = ? AND client_local_id = ?) OR local_id = ?`,
+                    // which can cross-match another user's row by local_id.
+                    fn ($query) => $query->where(function ($q) use ($clientLocalId): void {
+                        $q->where('client_local_id', $clientLocalId)
+                            ->orWhere('local_id', $clientLocalId);
+                    }),
                     fn ($query) => $query->whereRaw('1 = 0'),
                 )
                 ->first();
@@ -587,7 +684,10 @@ class SyncController extends Controller
                 $builder->where('updated_at', '>=', $sinceTs)
                     ->orWhere('deleted_at', '>=', $sinceTs);
             })
+            // Deterministic ordering so a truncated page is resumable and never
+            // re-orders rows that share an `updated_at` timestamp.
             ->orderBy('updated_at')
+            ->orderBy('id')
             ->limit($limit)
             ->get()
             ->map(function ($model): array {
