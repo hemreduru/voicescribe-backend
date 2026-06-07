@@ -34,6 +34,11 @@ return new class extends Migration
 
         if (Schema::hasColumn('users', 'supabase_user_id')) {
             Schema::table('users', function (Blueprint $table) {
+                // Drop the index + unique before the column. MySQL drops them
+                // implicitly with the column, but SQLite rebuilds the table and
+                // fails on the dangling index, so be explicit for portability.
+                $table->dropUnique('users_supabase_user_id_unique');
+                $table->dropIndex('users_supabase_user_id_index');
                 $table->dropColumn('supabase_user_id');
             });
         }

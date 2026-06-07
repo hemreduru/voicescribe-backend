@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\LocalModelController;
+use App\Http\Controllers\Api\V1\SummarizationController;
 use App\Http\Controllers\Api\V1\SyncController;
 use App\Http\Controllers\Api\V1\TranscriptController;
 use Illuminate\Support\Facades\Route;
@@ -35,9 +38,19 @@ Route::prefix('v1')->group(function () {
         // Transcripts
         Route::apiResource('transcripts', TranscriptController::class);
 
-        // Summarization (Phase 6)
-        // Route::post('/summarize', [SummarizationController::class, 'summarize']);
-        // Route::post('/summarize/chunk', [SummarizationController::class, 'summarizeChunk']);
+        // Summarization
+        Route::post('/transcripts/{id}/summaries', [SummarizationController::class, 'summarize'])
+            ->name('api.v1.transcripts.summarize');
+
+        // On-device summary model download config (URL + gated-model token)
+        Route::get('/local-summary-model', [LocalModelController::class, 'summaryModel'])
+            ->name('api.v1.local-summary-model');
+
+        // AI chat over the user's own transcripts (RAG) + persisted history
+        Route::get('/chat/sessions', [ChatController::class, 'index'])->name('api.v1.chat.sessions');
+        Route::get('/chat/sessions/{id}', [ChatController::class, 'show'])->name('api.v1.chat.session');
+        Route::delete('/chat/sessions/{id}', [ChatController::class, 'destroy'])->name('api.v1.chat.session.delete');
+        Route::post('/chat/messages', [ChatController::class, 'sendMessage'])->name('api.v1.chat.send');
 
         // Sync
         Route::prefix('sync')->group(function () {

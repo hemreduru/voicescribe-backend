@@ -18,6 +18,7 @@ class SummaryResource extends JsonResource
             'remote_id' => (string) $this->id,
             'transcript_id' => $this->transcript_id,
             'provider' => $this->provider,
+            'provider_key' => $this->whenLoaded('provider', fn () => $this->provider?->key),
             'model' => $this->model,
             'summary_text' => $this->summary_text,
             'token_count' => $this->token_count,

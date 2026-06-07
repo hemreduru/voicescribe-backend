@@ -286,8 +286,8 @@ class TranscriptController extends Controller
                 )
                 ->first();
 
-            $providerKey = $this->stringValue($item, ['provider_key', 'providerKey']) ?? 'openai';
-            $providerId = LlmProvider::getIdByKey($providerKey) ?? LlmProvider::getIdByKey('openai') ?? 1;
+            $providerKey = $this->stringValue($item, ['provider_key', 'providerKey']) ?? 'local';
+            $providerId = $this->resolveProviderId($providerKey);
 
             $attributes = array_filter([
                 'transcript_id' => $transcript->id,
@@ -313,6 +313,22 @@ class TranscriptController extends Controller
                 $summary->delete();
             }
         }
+    }
+
+    /**
+     * Resolve a Summary.provider_id from the client provider key. The client only
+     * sends 'local' or 'cloud'; 'cloud' maps to the configured default provider so
+     * swapping the remote LLM stays a config change (see config/llm.php).
+     */
+    private function resolveProviderId(string $providerKey): int
+    {
+        $key = $providerKey === 'cloud'
+            ? (string) config('llm.default_provider')
+            : $providerKey;
+
+        return LlmProvider::getIdByKey($key)
+            ?? LlmProvider::getIdByKey(LlmProvider::KEY_LOCAL)
+            ?? (int) LlmProvider::query()->value('id');
     }
 
     /**
