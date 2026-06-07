@@ -52,18 +52,20 @@ return [
     | via .env without shipping an app update.
     */
     'local_model' => [
-        // Default: Gemma 3 1B IT, int4 (.task, ~657MB, 4096 ctx). Best on-device
-        // Turkish quality + stable on GPU. Gated (gated:auto) — the app fetches
-        // the URL + HF token from /api/v1/local-summary-model so the token stays
+        // Default: Gemma 3 1B IT, int8 (.task, q8, ~1.0GB, 4096 ctx). Runs on the
+        // GPU (OpenCL) and produces structured Turkish minutes on-device. The int4
+        // q4_block128 variant SIGSEGVs in the OpenCL executor on some devices, so
+        // int8 is the stable default. Gated (gated:auto) — the app fetches the URL
+        // + HF token from /api/v1/local-summary-model so the token stays
         // server-side and never ships in the binary.
         'url' => env(
             'LOCAL_LLM_MODEL_URL',
-            'https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_block128_ekv4096.task',
+            'https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q8_ekv4096.task',
         ),
         // Required for the gated Gemma repo; supply an HF token with read access.
         'auth_token' => env('LOCAL_LLM_MODEL_TOKEN'),
-        'file_name' => env('LOCAL_LLM_MODEL_FILE', 'Gemma3-1B-IT_multi-prefill-seq_q4_block128_ekv4096.task'),
-        'size_bytes' => (int) env('LOCAL_LLM_MODEL_SIZE', 689308662),
+        'file_name' => env('LOCAL_LLM_MODEL_FILE', 'Gemma3-1B-IT_multi-prefill-seq_q8_ekv4096.task'),
+        'size_bytes' => (int) env('LOCAL_LLM_MODEL_SIZE', 1054023846),
         // flutter_gemma ModelType (gemmaIt|qwen|qwen3|deepSeek|phi|llama|hammer|general).
         'model_type' => env('LOCAL_LLM_MODEL_TYPE', 'gemmaIt'),
         // flutter_gemma ModelFileType (task|litertlm|binary).
