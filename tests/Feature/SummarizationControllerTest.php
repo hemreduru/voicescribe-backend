@@ -143,6 +143,36 @@ class SummarizationControllerTest extends TestCase
         });
     }
 
+    public function test_rotates_to_next_model_when_primary_is_quota_exhausted(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+        $transcript = $this->createTranscript($user);
+        $minutes = $this->minutesJson();
+
+        Http::fake([
+            '*models/gemini-2.5-flash:generateContent*' => Http::response([
+                'error' => ['code' => 429, 'status' => 'RESOURCE_EXHAUSTED'],
+            ], 429),
+            '*models/gemini-2.5-flash-lite:generateContent*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => json_encode($minutes)]]],
+                    'finishReason' => 'STOP',
+                ]],
+                'usageMetadata' => ['totalTokenCount' => 42],
+            ], 200),
+        ]);
+
+        $response = $this->postJson("/api/v1/transcripts/{$transcript->id}/summaries", [
+            'transcript_text' => 'Bütçe konuşuldu.',
+            'provider' => 'gemini',
+        ]);
+
+        $response->assertCreated();
+        // Primary (flash) was 429 → rotated to flash-lite, which succeeded.
+        $this->assertSame('gemini-2.5-flash-lite', data_get($response->json(), 'data.model'));
+    }
+
     public function test_identical_request_is_cached(): void
     {
         $user = User::factory()->create();

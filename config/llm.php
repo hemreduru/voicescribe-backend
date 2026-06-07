@@ -43,6 +43,17 @@ return [
             // 429 (no free allowance). gemma-4-* have high quota but are reasoning
             // models that emit chain-of-thought and won't produce clean JSON.
             'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
+            // Fallback chain: each model has its own daily free-tier quota, so the
+            // provider rotates to the next on 429/5xx. Primary GEMINI_MODEL is
+            // always tried first. gemma-4-* are excluded: they are reasoning
+            // models that don't emit clean JSON.
+            'models' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env(
+                    'GEMINI_MODELS',
+                    'gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.0-flash-lite,gemini-2.5-pro',
+                )),
+            ))),
             'max_tokens' => (int) env('GEMINI_MAX_TOKENS', 2048),
             'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
         ],

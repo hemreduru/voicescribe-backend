@@ -16,6 +16,9 @@ class GeminiProvider implements LlmProviderInterface
 {
     private ?int $lastTokenCount = null;
 
+    /** The model that actually produced the last successful completion. */
+    private ?string $lastModel = null;
+
     /**
      * @param  array<string, mixed>  $config
      */
@@ -120,10 +123,7 @@ class GeminiProvider implements LlmProviderInterface
             throw new SummarizationException("Missing API key for provider [{$this->name}].");
         }
 
-        $model = $this->getModelName();
         $baseUrl = rtrim((string) ($this->config['base_url'] ?? 'https://generativelanguage.googleapis.com/v1beta'), '/');
-        $endpoint = "{$baseUrl}/models/{$model}:generateContent";
-
         $body = [
             'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
             'contents' => [
@@ -132,35 +132,57 @@ class GeminiProvider implements LlmProviderInterface
             'generationConfig' => $generationConfig,
         ];
 
-        try {
-            $response = Http::timeout((int) config('llm.request_timeout', 60))
-                ->retry(2, 500, throw: false)
-                ->withQueryParameters(['key' => $apiKey])
-                ->acceptJson()
-                ->post($endpoint, $body);
-        } catch (Throwable $e) {
-            throw new SummarizationException("Gemini request failed: {$e->getMessage()}", previous: $e);
+        // Each Gemini model has its own daily free-tier quota, so on a quota
+        // (429) or transient (5xx) failure we rotate to the next model in the
+        // chain instead of giving up — summing per-model quota. Order is set via
+        // GEMINI_MODEL (primary) + GEMINI_MODELS (fallbacks) in config/llm.php.
+        $lastFailure = 'no models configured';
+        foreach ($this->models() as $model) {
+            $endpoint = "{$baseUrl}/models/{$model}:generateContent";
+
+            try {
+                $response = Http::timeout((int) config('llm.request_timeout', 60))
+                    ->withQueryParameters(['key' => $apiKey])
+                    ->acceptJson()
+                    ->post($endpoint, $body);
+            } catch (Throwable $e) {
+                $lastFailure = "{$model}: {$e->getMessage()}";
+
+                continue; // network error — try the next model
+            }
+
+            if ($response->successful()) {
+                $json = $response->json();
+                $content = data_get($json, 'candidates.0.content.parts.0.text');
+
+                if (! is_string($content) || trim($content) === '') {
+                    $finish = data_get($json, 'candidates.0.finishReason', 'unknown');
+                    $lastFailure = "{$model}: empty completion (finishReason: {$finish})";
+
+                    continue; // model produced nothing usable — try the next
+                }
+
+                $this->lastModel = $model;
+                $this->lastTokenCount = ($total = data_get($json, 'usageMetadata.totalTokenCount')) !== null
+                    ? (int) $total
+                    : null;
+
+                return trim($content);
+            }
+
+            $status = $response->status();
+            $lastFailure = "{$model}: HTTP {$status}";
+
+            // Quota or server error → rotate. Other 4xx (bad request, auth) are
+            // not model-specific, so fail fast.
+            if ($status === 429 || $status >= 500) {
+                continue;
+            }
+
+            throw new SummarizationException("Gemini returned HTTP {$status}: ".$response->body());
         }
 
-        if (! $response->successful()) {
-            throw new SummarizationException(
-                "Gemini returned HTTP {$response->status()}: ".$response->body(),
-            );
-        }
-
-        $json = $response->json();
-        $content = data_get($json, 'candidates.0.content.parts.0.text');
-
-        if (! is_string($content) || trim($content) === '') {
-            $finish = data_get($json, 'candidates.0.finishReason', 'unknown');
-            throw new SummarizationException("Gemini returned an empty completion (finishReason: {$finish}).");
-        }
-
-        $this->lastTokenCount = ($total = data_get($json, 'usageMetadata.totalTokenCount')) !== null
-            ? (int) $total
-            : null;
-
-        return trim($content);
+        throw new SummarizationException("All Gemini models failed/exhausted. Last: {$lastFailure}");
     }
 
     public function getProviderName(): string
@@ -168,9 +190,36 @@ class GeminiProvider implements LlmProviderInterface
         return $this->name;
     }
 
+    /**
+     * Ordered, de-duplicated model chain: the primary [model] first, then any
+     * [models] fallbacks. On 429/5xx the provider walks this list.
+     *
+     * @return list<string>
+     */
+    private function models(): array
+    {
+        $list = [];
+        $primary = trim((string) ($this->config['model'] ?? ''));
+        if ($primary !== '') {
+            $list[] = $primary;
+        }
+        foreach ((array) ($this->config['models'] ?? []) as $model) {
+            $list[] = trim((string) $model);
+        }
+
+        $unique = [];
+        foreach ($list as $model) {
+            if ($model !== '' && ! in_array($model, $unique, true)) {
+                $unique[] = $model;
+            }
+        }
+
+        return $unique !== [] ? $unique : ['gemini-2.5-flash'];
+    }
+
     public function getModelName(): string
     {
-        return (string) ($this->config['model'] ?? 'gemini-2.0-flash');
+        return $this->lastModel ?? $this->models()[0];
     }
 
     public function lastTokenCount(): ?int
