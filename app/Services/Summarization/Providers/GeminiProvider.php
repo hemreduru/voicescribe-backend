@@ -26,7 +26,7 @@ class GeminiProvider implements LlmProviderInterface
 
     public function summarize(string $text, ?string $prompt = null): string
     {
-        return $this->generate(
+        $raw = $this->generate(
             systemPrompt: $prompt ?? MeetingMinutesPrompt::system(),
             userText: $text,
             // NOTE: we intentionally ask for JSON via responseMimeType + the
@@ -41,6 +41,61 @@ class GeminiProvider implements LlmProviderInterface
                 'responseMimeType' => 'application/json',
             ],
         );
+
+        // Defensive: most models honour responseMimeType and return pure JSON,
+        // but if the configured model wraps the JSON in markdown fences or
+        // prose (so the model stays easy to swap), pull the JSON object out.
+        return self::extractJson($raw);
+    }
+
+    /**
+     * Returns the first balanced JSON object in [$raw] (preferring one that has a
+     * "title" key), or the trimmed input unchanged when none parses — leaving the
+     * tolerant client parser to make the final call.
+     */
+    public static function extractJson(string $raw): string
+    {
+        $trimmed = trim($raw);
+        if ($trimmed === '' || json_decode($trimmed) !== null) {
+            return $trimmed;
+        }
+
+        // Strip ```json … ``` fences if present.
+        if (preg_match('/```(?:json)?\s*(\{.*\})\s*```/s', $trimmed, $m)) {
+            $fenced = trim($m[1]);
+            if (json_decode($fenced) !== null) {
+                return $fenced;
+            }
+        }
+
+        $fallback = null;
+        $length = strlen($trimmed);
+        for ($i = 0; $i < $length; $i++) {
+            if ($trimmed[$i] !== '{') {
+                continue;
+            }
+            $depth = 0;
+            for ($j = $i; $j < $length; $j++) {
+                if ($trimmed[$j] === '{') {
+                    $depth++;
+                } elseif ($trimmed[$j] === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $candidate = substr($trimmed, $i, $j - $i + 1);
+                        $decoded = json_decode($candidate, true);
+                        if (is_array($decoded)) {
+                            if (array_key_exists('title', $decoded)) {
+                                return $candidate;
+                            }
+                            $fallback ??= $candidate;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $fallback ?? $trimmed;
     }
 
     public function complete(string $systemPrompt, string $userText): string

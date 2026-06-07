@@ -37,7 +37,12 @@ return [
         'gemini' => [
             'driver' => 'gemini',
             'api_key' => env('GEMINI_API_KEY'),
-            'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+            // Swap the active model with one env var (GEMINI_MODEL). Verified on
+            // this key: gemini-2.5-flash & gemini-2.5-flash-lite return clean JSON
+            // (flash-lite free tier is only ~20 req/day). gemini-2.0-flash* return
+            // 429 (no free allowance). gemma-4-* have high quota but are reasoning
+            // models that emit chain-of-thought and won't produce clean JSON.
+            'model' => env('GEMINI_MODEL', 'gemini-2.5-flash'),
             'max_tokens' => (int) env('GEMINI_MAX_TOKENS', 2048),
             'base_url' => env('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
         ],
