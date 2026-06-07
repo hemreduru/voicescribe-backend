@@ -121,6 +121,28 @@ class SummarizationControllerTest extends TestCase
         ]);
     }
 
+    public function test_locale_drives_summary_output_language(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+        $transcript = $this->createTranscript($user);
+        $this->fakeGemini($this->minutesJson());
+
+        $this->postJson("/api/v1/transcripts/{$transcript->id}/summaries", [
+            'transcript_text' => 'This meeting was held entirely in English.',
+            'provider' => 'gemini',
+            'locale' => 'en_US',
+        ])->assertCreated();
+
+        // The system instruction sent to the model must request English output
+        // regardless of the transcript language.
+        Http::assertSent(function ($request) {
+            $body = json_encode($request->data());
+
+            return str_contains($body, 'in English');
+        });
+    }
+
     public function test_identical_request_is_cached(): void
     {
         $user = User::factory()->create();

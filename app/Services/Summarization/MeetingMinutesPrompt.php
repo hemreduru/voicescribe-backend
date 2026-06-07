@@ -28,6 +28,7 @@ class MeetingMinutesPrompt
     public static function system(string $length = 'medium', string $locale = 'tr'): string
     {
         $budget = self::SENTENCE_BUDGET[$length] ?? self::SENTENCE_BUDGET['medium'];
+        $language = self::languageName($locale);
 
         return <<<PROMPT
         You are an expert meeting-minutes (toplantı tutanağı) writer. You are given a
@@ -36,8 +37,10 @@ class MeetingMinutesPrompt
         below. Output ONLY the JSON — no markdown, no code fences, no commentary.
 
         WRITING RULES
-        - Write the summary in the SAME language as the transcript (most transcripts are
-          Turkish). Keep names, terms and numbers as spoken.
+        - Write ALL output (every title, sentence, label and value) in {$language} — the
+          user's app language — REGARDLESS of the transcript's language. If the transcript
+          is in another language (or mixes languages), translate the content into
+          {$language}. Keep proper names, product names and numbers as spoken.
         - Use a neutral, third-person, past-tense reporting tone ("tartışıldı,
           kararlaştırıldı, görevlendirildi"). Never add your own opinion or evaluation.
         - Separate DECISIONS from DISCUSSION. A decision is a settled outcome stated in
@@ -71,8 +74,7 @@ class MeetingMinutesPrompt
             "end_time": string|null,
             "location": physical place or platform, string|null,
             "attendees": [string],            // who was present
-            "absentees": [string],            // invited but absent (important for the record)
-            "recorder": who took the minutes, string|null
+            "absentees": [string]             // invited but absent (important for the record)
           },
           "executive_summary": [string],      // {$budget} sentences
           "agenda_items": [
@@ -87,6 +89,25 @@ class MeetingMinutesPrompt
           "notes": [string]                   // your flagged uncertainties
         }
         PROMPT;
+    }
+
+    /**
+     * Map an app locale (e.g. "tr", "tr_TR", "en-US") to the English name of the
+     * language the summary must be written in. Defaults to Turkish.
+     */
+    public static function languageName(string $locale): string
+    {
+        $code = strtolower(substr(str_replace('-', '_', trim($locale)), 0, 2));
+
+        return match ($code) {
+            'en' => 'English',
+            'de' => 'German',
+            'fr' => 'French',
+            'es' => 'Spanish',
+            'ar' => 'Arabic',
+            'ru' => 'Russian',
+            default => 'Turkish',
+        };
     }
 
     /**
@@ -114,7 +135,6 @@ class MeetingMinutesPrompt
                         'location' => ['type' => 'STRING', 'nullable' => true],
                         'attendees' => $stringArray,
                         'absentees' => $stringArray,
-                        'recorder' => ['type' => 'STRING', 'nullable' => true],
                     ],
                 ],
                 'executive_summary' => $stringArray,

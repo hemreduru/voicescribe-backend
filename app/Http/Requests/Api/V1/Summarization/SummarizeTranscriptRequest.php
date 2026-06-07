@@ -21,6 +21,8 @@ class SummarizeTranscriptRequest extends FormRequest
             // Provider key must exist in config/llm.php; null falls back to default.
             'provider' => ['nullable', 'string', Rule::in(array_keys((array) config('llm.providers')))],
             'length' => ['nullable', 'string', Rule::in(['short', 'medium', 'long'])],
+            // App/UI language the summary must be written in (e.g. "tr", "en_US").
+            'locale' => ['nullable', 'string', 'max:10'],
             // Local row id the app will use, so a later sync push updates this row
             // instead of creating a duplicate.
             'client_local_id' => ['nullable', 'string', 'max:100'],

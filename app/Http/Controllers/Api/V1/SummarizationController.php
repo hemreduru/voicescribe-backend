@@ -47,9 +47,12 @@ class SummarizationController extends Controller
         }
 
         $length = $validated['length'] ?? 'medium';
+        // The summary must be written in the user's app language, not the
+        // transcript's. Default to Turkish when the client sends no locale.
+        $locale = $validated['locale'] ?? 'tr';
         $provider = $this->factory->make($validated['provider'] ?? null);
 
-        $cacheKey = 'summary:'.sha1($provider->getProviderName().'|'.$provider->getModelName().'|'.$length.'|'.$text);
+        $cacheKey = 'summary:'.sha1($provider->getProviderName().'|'.$provider->getModelName().'|'.$length.'|'.$locale.'|'.$text);
 
         try {
             $start = microtime(true);
@@ -57,7 +60,7 @@ class SummarizationController extends Controller
             $summaryText = Cache::remember(
                 $cacheKey,
                 (int) config('llm.cache_ttl', 3600),
-                fn (): string => $provider->summarize($text, MeetingMinutesPrompt::system($length)),
+                fn (): string => $provider->summarize($text, MeetingMinutesPrompt::system($length, $locale)),
             );
             $processingMs = (int) round((microtime(true) - $start) * 1000);
         } catch (SummarizationException $e) {
