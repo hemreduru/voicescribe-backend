@@ -37,6 +37,10 @@ class LookupSeeder extends Seeder
     private function seedLlmProviders(): void
     {
         $providers = [
+            // On-device summaries sync up with provider_key 'local'; this row must
+            // exist or resolveProviderId('local') falls back to the first provider
+            // (openai) and local summaries get mislabeled.
+            ['key' => 'local', 'name_en' => 'On-device', 'name_tr' => 'Cihazda', 'sort_order' => 0],
             ['key' => 'openai', 'name_en' => 'OpenAI', 'name_tr' => 'OpenAI', 'sort_order' => 1],
             ['key' => 'claude', 'name_en' => 'Claude (Anthropic)', 'name_tr' => 'Claude (Anthropic)', 'sort_order' => 2],
             ['key' => 'gemini', 'name_en' => 'Gemini (Google)', 'name_tr' => 'Gemini (Google)', 'sort_order' => 3],
