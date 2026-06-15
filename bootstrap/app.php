@@ -11,6 +11,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Behind Traefik (Dokploy): trust the proxy so the app sees the real
+        // client IP (X-Forwarded-For) — required for per-client rate limiting —
+        // and detects https from X-Forwarded-Proto so generated URLs use https.
+        $middleware->trustProxies(at: '*');
+
         $middleware->api(prepend: [
             ForceJsonResponse::class,
         ]);
