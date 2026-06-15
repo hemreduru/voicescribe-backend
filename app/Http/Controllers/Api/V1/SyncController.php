@@ -599,8 +599,8 @@ class SyncController extends Controller
                 continue;
             }
 
-            $providerKey = $this->stringValue($row, ['provider_key', 'providerKey']) ?? 'openai';
-            $providerId = LlmProvider::getIdByKey($providerKey) ?? LlmProvider::getIdByKey('openai') ?? 1;
+            $providerKey = $this->stringValue($row, ['provider_key', 'providerKey']) ?? LlmProvider::KEY_LOCAL;
+            $providerId = LlmProvider::resolveId($providerKey);
 
             $attributes = array_filter([
                 'transcript_id' => $transcript->id,

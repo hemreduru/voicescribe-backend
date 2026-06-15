@@ -17,4 +17,20 @@ return [
     |
     */
     'auth_password_bypass' => (bool) env('AUTH_PASSWORD_BYPASS', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rate limits (requests per minute)
+    |--------------------------------------------------------------------------
+    |
+    | Named limiters registered in AppServiceProvider and attached in
+    | routes/api.php. `auth` guards the public login/register endpoints against
+    | brute force (keyed by IP). `llm` guards the synchronous LLM endpoints
+    | (summarization + chat) against quota exhaustion/abuse (keyed by user).
+    |
+    */
+    'rate_limits' => [
+        'auth' => (int) env('RATE_LIMIT_AUTH', 10),
+        'llm' => (int) env('RATE_LIMIT_LLM', 20),
+    ],
 ];
