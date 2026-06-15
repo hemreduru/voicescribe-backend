@@ -3,6 +3,7 @@
 namespace App\Services\Summarization\Providers;
 
 use App\Services\Summarization\Contracts\LlmProviderInterface;
+use App\Services\Summarization\Contracts\StreamingLlmProviderInterface;
 use App\Services\Summarization\Exceptions\SummarizationException;
 use App\Services\Summarization\MeetingMinutesPrompt;
 use Illuminate\Support\Facades\Http;
@@ -12,7 +13,7 @@ use Throwable;
  * Google Gemini provider using the native generateContent API with structured
  * JSON output (responseMimeType + responseSchema).
  */
-class GeminiProvider implements LlmProviderInterface
+class GeminiProvider implements LlmProviderInterface, StreamingLlmProviderInterface
 {
     private ?int $lastTokenCount = null;
 
@@ -183,6 +184,94 @@ class GeminiProvider implements LlmProviderInterface
         }
 
         throw new SummarizationException("All Gemini models failed/exhausted. Last: {$lastFailure}");
+    }
+
+    /**
+     * Streams a free-form completion via Gemini's `streamGenerateContent` SSE
+     * endpoint (`alt=sse`). Rotates models on 429/5xx like {@see generate()}.
+     * Throws before the first delta when no model can start, so the caller can
+     * fall back to a buffered completion.
+     *
+     * @return iterable<string>
+     */
+    public function stream(string $systemPrompt, string $userText): iterable
+    {
+        $apiKey = (string) ($this->config['api_key'] ?? '');
+        if ($apiKey === '') {
+            throw new SummarizationException("Missing API key for provider [{$this->name}].");
+        }
+
+        $baseUrl = rtrim((string) ($this->config['base_url'] ?? 'https://generativelanguage.googleapis.com/v1beta'), '/');
+        $body = [
+            'systemInstruction' => ['parts' => [['text' => $systemPrompt]]],
+            'contents' => [
+                ['role' => 'user', 'parts' => [['text' => $userText]]],
+            ],
+            'generationConfig' => [
+                'temperature' => 0.3,
+                'maxOutputTokens' => (int) ($this->config['max_tokens'] ?? 2048),
+            ],
+        ];
+
+        $lastFailure = 'no models configured';
+        foreach ($this->models() as $model) {
+            $endpoint = "{$baseUrl}/models/{$model}:streamGenerateContent";
+
+            try {
+                $response = Http::timeout((int) config('llm.request_timeout', 60))
+                    ->withQueryParameters(['key' => $apiKey, 'alt' => 'sse'])
+                    ->withOptions(['stream' => true])
+                    ->post($endpoint, $body);
+            } catch (Throwable $e) {
+                $lastFailure = "{$model}: {$e->getMessage()}";
+
+                continue;
+            }
+
+            $status = $response->status();
+            if (! $response->successful()) {
+                $lastFailure = "{$model}: HTTP {$status}";
+                if ($status === 429 || $status >= 500) {
+                    continue;
+                }
+                throw new SummarizationException("Gemini stream returned HTTP {$status}.");
+            }
+
+            $this->lastModel = $model;
+            $stream = $response->toPsrResponse()->getBody();
+            $buffer = '';
+            $emitted = false;
+
+            while (! $stream->eof()) {
+                $buffer .= $stream->read(2048);
+
+                while (($nl = strpos($buffer, "\n")) !== false) {
+                    $line = trim(substr($buffer, 0, $nl));
+                    $buffer = substr($buffer, $nl + 1);
+
+                    if (! str_starts_with($line, 'data:')) {
+                        continue;
+                    }
+                    $payload = trim(substr($line, 5));
+                    if ($payload === '' || $payload === '[DONE]') {
+                        continue;
+                    }
+
+                    $text = data_get(json_decode($payload, true), 'candidates.0.content.parts.0.text');
+                    if (is_string($text) && $text !== '') {
+                        $emitted = true;
+                        yield $text;
+                    }
+                }
+            }
+
+            if ($emitted) {
+                return;
+            }
+            $lastFailure = "{$model}: stream produced no text";
+        }
+
+        throw new SummarizationException("All Gemini models failed to stream. Last: {$lastFailure}");
     }
 
     public function getProviderName(): string

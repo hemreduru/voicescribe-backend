@@ -54,6 +54,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/chat/messages', [ChatController::class, 'sendMessage'])
             ->middleware('throttle:llm')
             ->name('api.v1.chat.send');
+        // Streaming (SSE) variant of the above; the client falls back to the
+        // buffered endpoint when streaming isn't available.
+        Route::post('/chat/messages/stream', [ChatController::class, 'streamMessage'])
+            ->middleware('throttle:llm')
+            ->name('api.v1.chat.stream');
 
         // Sync
         Route::prefix('sync')->group(function () {
