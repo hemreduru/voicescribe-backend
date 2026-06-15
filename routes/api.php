@@ -23,8 +23,8 @@ Route::prefix('v1')->group(function () {
     // Health check (public)
     Route::get('/health', HealthController::class)->name('api.v1.health');
 
-    // Authentication (public)
-    Route::prefix('auth')->group(function () {
+    // Authentication (public) — throttled against brute force.
+    Route::prefix('auth')->middleware('throttle:auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register'])->name('api.v1.auth.register');
         Route::post('/login', [AuthController::class, 'login'])->name('api.v1.auth.login');
     });
@@ -38,8 +38,9 @@ Route::prefix('v1')->group(function () {
         // Transcripts
         Route::apiResource('transcripts', TranscriptController::class);
 
-        // Summarization
+        // Summarization — throttled (synchronous LLM call, protects provider quota).
         Route::post('/transcripts/{id}/summaries', [SummarizationController::class, 'summarize'])
+            ->middleware('throttle:llm')
             ->name('api.v1.transcripts.summarize');
 
         // On-device summary model download config (URL + gated-model token)
@@ -50,7 +51,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/chat/sessions', [ChatController::class, 'index'])->name('api.v1.chat.sessions');
         Route::get('/chat/sessions/{id}', [ChatController::class, 'show'])->name('api.v1.chat.session');
         Route::delete('/chat/sessions/{id}', [ChatController::class, 'destroy'])->name('api.v1.chat.session.delete');
-        Route::post('/chat/messages', [ChatController::class, 'sendMessage'])->name('api.v1.chat.send');
+        Route::post('/chat/messages', [ChatController::class, 'sendMessage'])
+            ->middleware('throttle:llm')
+            ->name('api.v1.chat.send');
 
         // Sync
         Route::prefix('sync')->group(function () {

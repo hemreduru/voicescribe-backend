@@ -38,10 +38,17 @@ class TranscriptController extends Controller
             return $this->unauthorizedResponse();
         }
 
+        // Bounded to keep the response (with eager-loaded chunks + summaries) from
+        // growing unbounded. Stays a flat array — the app parses `data` as a list.
+        // sync/pull is the cursor-paged bulk mechanism; this is just a guard.
+        $limit = (int) $request->integer('limit', 500);
+        $limit = max(1, min($limit, 500));
+
         $transcripts = Transcript::query()
             ->where('user_id', $user->id)
             ->with(['status', 'chunks', 'summaries.provider'])
             ->latest('updated_at')
+            ->limit($limit)
             ->get();
 
         return $this->successResponse(
@@ -286,8 +293,8 @@ class TranscriptController extends Controller
                 )
                 ->first();
 
-            $providerKey = $this->stringValue($item, ['provider_key', 'providerKey']) ?? 'local';
-            $providerId = $this->resolveProviderId($providerKey);
+            $providerKey = $this->stringValue($item, ['provider_key', 'providerKey']) ?? LlmProvider::KEY_LOCAL;
+            $providerId = LlmProvider::resolveId($providerKey);
 
             $attributes = array_filter([
                 'transcript_id' => $transcript->id,
@@ -313,22 +320,6 @@ class TranscriptController extends Controller
                 $summary->delete();
             }
         }
-    }
-
-    /**
-     * Resolve a Summary.provider_id from the client provider key. The client only
-     * sends 'local' or 'cloud'; 'cloud' maps to the configured default provider so
-     * swapping the remote LLM stays a config change (see config/llm.php).
-     */
-    private function resolveProviderId(string $providerKey): int
-    {
-        $key = $providerKey === 'cloud'
-            ? (string) config('llm.default_provider')
-            : $providerKey;
-
-        return LlmProvider::getIdByKey($key)
-            ?? LlmProvider::getIdByKey(LlmProvider::KEY_LOCAL)
-            ?? (int) LlmProvider::query()->value('id');
     }
 
     /**
