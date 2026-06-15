@@ -12,3 +12,7 @@ storage/framework/sessions/*
 storage/framework/views/*
 .phpunit.result.cache
 README.md
+# Stale generated caches — Laravel regenerates these at boot. If baked into the
+# image they can reference dev-only providers (e.g. laravel/pail) absent from a
+# --no-dev vendor, crashing startup.
+bootstrap/cache/*.php
