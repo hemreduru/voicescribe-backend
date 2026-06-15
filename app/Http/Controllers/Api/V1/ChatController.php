@@ -11,11 +11,13 @@ use App\Models\ChatSession;
 use App\Models\User;
 use App\Services\Chat\ChatPrompt;
 use App\Services\Chat\TranscriptRetriever;
+use App\Services\Summarization\Contracts\StreamingLlmProviderInterface;
 use App\Services\Summarization\Exceptions\SummarizationException;
 use App\Services\Summarization\LlmProviderFactory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Chat over the user's own transcriptions (RAG). Sessions + messages persist in
@@ -159,6 +161,127 @@ class ChatController extends Controller
             ],
             message: 'Message sent successfully',
         );
+    }
+
+    /**
+     * Streaming variant of {@see sendMessage()} over Server-Sent Events. Emits a
+     * `meta` event (session + user message + sources), then `delta` events as the
+     * answer is generated, then a `done` event with the persisted assistant
+     * message. Falls back to a buffered completion when the provider cannot
+     * stream, so the client always receives a complete answer.
+     */
+    public function streamMessage(SendChatMessageRequest $request): StreamedResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $validated = $request->validated();
+        $question = trim((string) $validated['content']);
+
+        $session = $this->resolveSession($user, $validated['session_id'] ?? null, $question);
+
+        return response()->stream(function () use ($user, $session, $question): void {
+            $send = static function (string $event, array $data): void {
+                echo "event: {$event}\n";
+                echo 'data: '.json_encode($data, JSON_UNESCAPED_UNICODE)."\n\n";
+                if (ob_get_level() > 0) {
+                    @ob_flush();
+                }
+                flush();
+            };
+
+            if ($session === null) {
+                $send('error', ['message' => 'Chat session not found.']);
+
+                return;
+            }
+
+            $userMessage = $session->messages()->create([
+                'role' => ChatMessage::ROLE_USER,
+                'content' => $question,
+            ]);
+
+            $sources = $this->retriever->retrieve($user->id, $question);
+            $history = $session->messages()
+                ->where('id', '<', $userMessage->id)
+                ->orderByDesc('id')
+                ->limit(6)
+                ->get()
+                ->reverse()
+                ->map(fn (ChatMessage $m) => ['role' => $m->role, 'content' => $m->content])
+                ->values()
+                ->all();
+
+            $sourcePayload = array_map(static fn ($s) => [
+                'transcript_id' => $s['transcript_id'],
+                'title' => $s['title'],
+                'date' => $s['date'],
+            ], $sources);
+
+            $send('meta', [
+                'session' => (new ChatSessionResource($session->loadCount('messages')))->resolve(),
+                'user_message' => (new ChatMessageResource($userMessage))->resolve(),
+                'sources' => $sourcePayload,
+            ]);
+
+            $systemPrompt = ChatPrompt::system();
+            $userPrompt = ChatPrompt::buildUserPrompt($sources, $history, $question);
+            $answer = '';
+
+            try {
+                $provider = $this->factory->make();
+                if ($provider instanceof StreamingLlmProviderInterface) {
+                    try {
+                        foreach ($provider->stream($systemPrompt, $userPrompt) as $delta) {
+                            $answer .= $delta;
+                            $send('delta', ['text' => $delta]);
+                        }
+                    } catch (\Throwable $e) {
+                        // Mid-stream failure with nothing yet emitted → fall back
+                        // to the buffered path below; otherwise surface it.
+                        if ($answer !== '') {
+                            throw $e;
+                        }
+                        report($e);
+                    }
+                }
+
+                if ($answer === '') {
+                    $answer = $provider->complete($systemPrompt, $userPrompt);
+                    if (trim($answer) !== '') {
+                        $send('delta', ['text' => $answer]);
+                    }
+                }
+            } catch (SummarizationException $e) {
+                report($e);
+                $send('error', ['message' => 'Yapay zekâ şu an yanıt veremedi. Lütfen biraz sonra tekrar deneyin.']);
+
+                return;
+            }
+
+            $answer = trim($answer);
+            if ($answer === '') {
+                $send('error', ['message' => 'Yapay zekâ boş yanıt döndürdü.']);
+
+                return;
+            }
+
+            $assistantMessage = $session->messages()->create([
+                'role' => ChatMessage::ROLE_ASSISTANT,
+                'content' => $answer,
+                'sources' => $sourcePayload,
+            ]);
+            $session->forceFill(['last_message_at' => now()])->save();
+
+            $send('done', [
+                'session' => (new ChatSessionResource($session->loadCount('messages')))->resolve(),
+                'assistant_message' => (new ChatMessageResource($assistantMessage))->resolve(),
+            ]);
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+            'Connection' => 'keep-alive',
+        ]);
     }
 
     private function resolveSession(User $user, ?int $sessionId, string $question): ?ChatSession
