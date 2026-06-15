@@ -22,7 +22,21 @@ ENV AUTORUN_ENABLED=true \
     AUTORUN_LARAVEL_VIEW_CACHE=true \
     PHP_OPCACHE_ENABLE=1
 
+WORKDIR /var/www/html
+
 USER root
 COPY --chown=www-data:www-data . /var/www/html
 COPY --from=vendor --chown=www-data:www-data /app/vendor /var/www/html/vendor
+# The repo .gitignore excludes /storage, so a fresh git clone (Dokploy build)
+# ships without the framework writable dirs. Without storage/framework/views,
+# `php artisan optimize` (view:cache) fatals with "View path not found" and the
+# container restart-loops. Recreate the standard Laravel writable tree.
+RUN mkdir -p \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/logs \
+        storage/app/public \
+        bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
 USER www-data
