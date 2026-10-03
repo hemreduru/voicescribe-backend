@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\HealthController;
-use App\Http\Controllers\Api\V1\LocalModelController;
 use App\Http\Controllers\Api\V1\SummarizationController;
 use App\Http\Controllers\Api\V1\SyncController;
 use App\Http\Controllers\Api\V1\TranscribeController;
@@ -43,10 +42,6 @@ Route::prefix('v1')->group(function () {
         Route::post('/transcripts/{id}/summaries', [SummarizationController::class, 'summarize'])
             ->middleware('throttle:llm')
             ->name('api.v1.transcripts.summarize');
-
-        // On-device summary model download config (URL + gated-model token)
-        Route::get('/local-summary-model', [LocalModelController::class, 'summaryModel'])
-            ->name('api.v1.local-summary-model');
 
         // Speech-to-text relay (Groq whisper) — throttled per user; one request per ~15s chunk.
         Route::post('/transcribe', TranscribeController::class)
