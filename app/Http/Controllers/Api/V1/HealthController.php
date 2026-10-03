@@ -13,14 +13,7 @@ class HealthController extends Controller
     public function __invoke(): JsonResponse
     {
         return $this->successResponse(
-            data: [
-                'status' => 'healthy',
-                'service' => 'VoiceScribe API',
-                'version' => '1.0.0',
-                'php_version' => PHP_VERSION,
-                'laravel_version' => app()->version(),
-                'environment' => app()->environment(),
-            ],
+            data: ['status' => 'healthy'],
             message: 'Service is running',
         );
     }
