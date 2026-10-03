@@ -105,7 +105,9 @@ class SyncController extends Controller
             return $this->unauthorizedResponse();
         }
 
-        $payload = $request->validated();
+        // Validation passed; read the batches whole (validated() would drop the
+        // row keys that have no rule, e.g. camelCase aliases sent by the app).
+        $payload = $request->only(['transcripts', 'transcript_chunks', 'summaries']);
         $startedAt = microtime(true);
 
         $result = DB::transaction(function () use ($payload, $user): array {

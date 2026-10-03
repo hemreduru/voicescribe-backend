@@ -17,7 +17,8 @@ class SummarizeTranscriptRequest extends FormRequest
         return [
             // Optional: client may send the transcript text directly so the call
             // works even before chunks have synced; otherwise we merge stored chunks.
-            'transcript_text' => ['nullable', 'string'],
+            // Not persisted (sent to the LLM), so capped by request size, not a column.
+            'transcript_text' => ['nullable', 'string', 'max:200000'],
             // Provider key must exist in config/llm.php; null falls back to default.
             'provider' => ['nullable', 'string', Rule::in(array_keys((array) config('llm.providers')))],
             'length' => ['nullable', 'string', Rule::in(['short', 'medium', 'long'])],

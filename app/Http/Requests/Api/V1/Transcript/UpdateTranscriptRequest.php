@@ -23,7 +23,10 @@ class UpdateTranscriptRequest extends FormRequest
             'updated_at' => ['sometimes', 'nullable', 'date'],
             'deleted_at' => ['sometimes', 'nullable', 'date'],
             'chunks' => ['sometimes', 'array'],
+            'chunks.*.text' => ['nullable', 'string', 'max:16000'],
+            'chunks.*.transcription_error' => ['nullable', 'string', 'max:5000'],
             'summaries' => ['sometimes', 'array'],
+            'summaries.*.summary_text' => ['nullable', 'string', 'max:16000'],
         ];
     }
 }
