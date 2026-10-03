@@ -89,7 +89,7 @@ class InputLimitsTest extends TestCase
     {
         config(['sync.max_batch_size' => 3]);
 
-        foreach (['transcripts', 'transcript_chunks', 'speakers', 'summaries', 'processing_jobs', 'sync_logs'] as $key) {
+        foreach (['transcripts', 'transcript_chunks', 'summaries', 'processing_jobs', 'sync_logs'] as $key) {
             $this->postJson('/api/v1/sync/push', [$key => array_fill(0, 4, [])])
                 ->assertStatus(422)->assertJsonValidationErrors([$key]);
         }

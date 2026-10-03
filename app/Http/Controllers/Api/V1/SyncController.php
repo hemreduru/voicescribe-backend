@@ -24,7 +24,6 @@ class SyncController extends Controller
     private function emptyLegacyTables(): array
     {
         return [
-            'speakers' => [],
             'processing_jobs' => [],
             'sync_logs' => [],
         ];
