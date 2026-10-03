@@ -38,7 +38,7 @@ return new class extends Migration
         // Wrapped in try/catch so non-MySQL (e.g. sqlite test) migrations still run.
         try {
             DB::statement('ALTER TABLE transcript_chunks ADD FULLTEXT chunks_text_fulltext (text)');
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // FULLTEXT unsupported on this driver (e.g. sqlite) — retrieval falls
             // back to LIKE matching in TranscriptRetriever.
         }
@@ -48,7 +48,7 @@ return new class extends Migration
     {
         try {
             DB::statement('ALTER TABLE transcript_chunks DROP INDEX chunks_text_fulltext');
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             // ignore
         }
         Schema::dropIfExists('chat_messages');

@@ -29,7 +29,6 @@ class SyncControllerTest extends TestCase
             ->postJson('/api/v1/sync/push', [
                 'transcripts' => [],
                 'transcript_chunks' => [],
-                'speakers' => [],
                 'summaries' => [],
                 'processing_jobs' => [],
                 'sync_logs' => [],
@@ -41,12 +40,12 @@ class SyncControllerTest extends TestCase
             ->assertJsonPath('data.applied.transcripts', [])
             ->assertJsonPath('data.applied.transcript_chunks', [])
             ->assertJsonPath('data.applied.summaries', [])
-            ->assertJsonPath('data.applied.speakers', [])
             ->assertJsonPath('data.applied.processing_jobs', [])
             ->assertJsonPath('data.applied.sync_logs', [])
             ->assertJsonPath('data.conflicts', [])
             ->assertJsonPath('data.errors', []);
 
+        $this->assertArrayNotHasKey('speakers', $response->json('data.applied'));
         $this->assertIsString(data_get($response->json(), 'data.serverTime'));
     }
 
@@ -60,7 +59,6 @@ class SyncControllerTest extends TestCase
                 'tables' => [
                     'transcripts',
                     'transcript_chunks',
-                    'speakers',
                     'summaries',
                     'processing_jobs',
                     'sync_logs',
@@ -75,10 +73,10 @@ class SyncControllerTest extends TestCase
             ->assertJsonPath('data.transcripts', [])
             ->assertJsonPath('data.transcript_chunks', [])
             ->assertJsonPath('data.summaries', [])
-            ->assertJsonPath('data.speakers', [])
             ->assertJsonPath('data.processing_jobs', [])
             ->assertJsonPath('data.sync_logs', []);
 
+        $this->assertArrayNotHasKey('speakers', $response->json('data'));
         $this->assertIsString(data_get($response->json(), 'data.serverTime'));
     }
 
@@ -128,11 +126,11 @@ class SyncControllerTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('data.applied.speakers', [])
             ->assertJsonPath('data.applied.processing_jobs', [])
             ->assertJsonPath('data.applied.sync_logs', [])
             ->assertJsonPath('data.errors', []);
 
+        $this->assertArrayNotHasKey('speakers', $response->json('data.applied'));
         $this->assertFalse(Schema::hasTable('speakers'));
         $this->assertFalse(Schema::hasTable('processing_jobs'));
         $this->assertFalse(Schema::hasTable('sync_logs'));

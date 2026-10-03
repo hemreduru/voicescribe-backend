@@ -35,7 +35,7 @@ class ChatPrompt
         $parts = [];
 
         if ($sources === []) {
-            $parts[] = "KAYNAKLAR: (kullanıcının ilgili transkripti bulunamadı)";
+            $parts[] = 'KAYNAKLAR: (kullanıcının ilgili transkripti bulunamadı)';
         } else {
             $parts[] = 'KAYNAKLAR:';
             foreach ($sources as $i => $source) {

@@ -23,7 +23,7 @@ class SyncPushRequest extends FormRequest
         $max = 'max:'.(int) config('sync.max_batch_size');
 
         $rules = [];
-        foreach (['transcripts', 'transcript_chunks', 'speakers', 'summaries', 'processing_jobs', 'sync_logs'] as $table) {
+        foreach (['transcripts', 'transcript_chunks', 'summaries', 'processing_jobs', 'sync_logs'] as $table) {
             $rules[$table] = ['sometimes', 'array', $max];
             $rules[$table.'.*'] = ['array'];
         }

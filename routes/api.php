@@ -3,9 +3,9 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\HealthController;
-use App\Http\Controllers\Api\V1\LocalModelController;
 use App\Http\Controllers\Api\V1\SummarizationController;
 use App\Http\Controllers\Api\V1\SyncController;
+use App\Http\Controllers\Api\V1\TranscribeController;
 use App\Http\Controllers\Api\V1\TranscriptController;
 use Illuminate\Support\Facades\Route;
 
@@ -43,9 +43,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:llm')
             ->name('api.v1.transcripts.summarize');
 
-        // On-device summary model download config (URL + gated-model token)
-        Route::get('/local-summary-model', [LocalModelController::class, 'summaryModel'])
-            ->name('api.v1.local-summary-model');
+        // Speech-to-text relay (Groq whisper) — throttled per user; one request per ~15s chunk.
+        Route::post('/transcribe', TranscribeController::class)
+            ->middleware('throttle:transcribe')
+            ->name('api.v1.transcribe');
 
         // AI chat over the user's own transcripts (RAG) + persisted history
         Route::get('/chat/sessions', [ChatController::class, 'index'])->name('api.v1.chat.sessions');

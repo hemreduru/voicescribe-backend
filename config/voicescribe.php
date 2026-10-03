@@ -26,11 +26,29 @@ return [
     | Named limiters registered in AppServiceProvider and attached in
     | routes/api.php. `auth` guards the public login/register endpoints against
     | brute force (keyed by IP). `llm` guards the synchronous LLM endpoints
-    | (summarization + chat) against quota exhaustion/abuse (keyed by user).
+    | (summarization + chat) and `transcribe` the speech-to-text relay against
+    | quota exhaustion/abuse (keyed by user).
     |
     */
     'rate_limits' => [
         'auth' => (int) env('RATE_LIMIT_AUTH', 10),
         'llm' => (int) env('RATE_LIMIT_LLM', 20),
+        'transcribe' => (int) env('RATE_LIMIT_TRANSCRIBE', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Speech-to-text relay (POST /api/v1/transcribe)
+    |--------------------------------------------------------------------------
+    |
+    | Audio chunks are relayed to Groq Whisper. The API key and base URL are
+    | shared with the `groq` provider in config/llm.php (GROQ_API_KEY,
+    | GROQ_BASE_URL). `max_size_kb` must stay below the PHP/nginx 16M body
+    | limit set in the Dockerfile (Groq's own free-tier limit is 25 MB).
+    |
+    */
+    'transcribe' => [
+        'model' => env('GROQ_STT_MODEL', 'whisper-large-v3-turbo'),
+        'max_size_kb' => (int) env('TRANSCRIBE_MAX_SIZE_KB', 10240),
     ],
 ];

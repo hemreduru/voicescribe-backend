@@ -15,7 +15,7 @@ FROM serversideup/php:8.3-fpm-nginx
 #
 # Migrations: AUTORUN_LARAVEL_MIGRATION runs `php artisan migrate --force` (the
 # --force flag is explicit below). The seed migrations leave the lookup/reference
-# data (incl. the 'local' LLM provider) in place, so no db:seed is needed.
+# data in place, so no db:seed is needed.
 # AUTORUN_LARAVEL_MIGRATION_ISOLATION stays off on purpose: this is a single
 # replica, and isolated migrations take a cache lock, but the cache/lock tables
 # are themselves created by these migrations (fails on a fresh database). Turn it
