@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Lookup\LlmProvider;
 use App\Models\Lookup\TranscriptStatus;
-use App\Models\Summary;
 use App\Models\Transcript;
 use App\Models\User;
 use Database\Seeders\LookupSeeder;

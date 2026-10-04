@@ -40,5 +40,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('llm', fn (Request $request) => Limit::perMinute(
             (int) config('voicescribe.rate_limits.llm', 20)
         )->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
+
+        // Speech-to-text relay (one request per recorded audio chunk), keyed by user.
+        RateLimiter::for('transcribe', fn (Request $request) => Limit::perMinute(
+            (int) config('voicescribe.rate_limits.transcribe', 60)
+        )->by($request->user()?->getAuthIdentifier() ?? $request->ip()));
     }
 }
